@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Kwa aaPanel, MySQL ndio database inayotumika sana, lakini kama unatumia PostgreSQL badilisha "mysql" iwe "postgresql"
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  telegramId   BigInt   @unique
+  role         Role     @default(FREELANCER) // FREELANCER, CLIENT, ADMIN, n.k.
+  adminRole    String?  // Super Admin, Finance Team, Trust & Safety
+  trustScore   Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  jobsPosted   Job[]    @relation("ClientJobs")
+  disputes     Dispute[]
+}
+
+model Job {
+  id          Int      @id @default(autoincrement())
+  title       String
+  budget      Float
+  deadline    DateTime?
+  status      JobStatus @default(OPEN)
+  clientId    Int
+  client      User     @relation("ClientJobs", fields: [clientId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Dispute {
+  id          Int      @id @default(autoincrement())
+  reason      String
+  status      DisputeStatus @default(PENDING)
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum Role {
+  FREELANCER
+  CLIENT
+  ADMIN
+}
+
+enum JobStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum DisputeStatus {
+  PENDING
+  UNDER_REVIEW
+  RESOLVED
+}
