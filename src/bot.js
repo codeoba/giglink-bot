@@ -104,6 +104,7 @@ bot.action('client_menu', async (ctx) => {
 
 bot.action('freelancer_menu', async (ctx) => {
   const buttons = [
+    [Markup.button.callback("💼 Tengeneza Gig Mpya", "create_gig")],
     [Markup.button.callback("⭐ Profile Optimization", "dummy_action_audit")],
     [Markup.button.callback("📄 Proposal Coach & Pricing", "proposal_help")],
     [Markup.button.callback("📈 Career Growth", "dummy_action_audit")],
@@ -145,6 +146,12 @@ bot.action('smart_match', async (ctx) => {
 bot.action('proposal_help', async (ctx) => {
   await ctx.answerCbQuery("Proposal Coach...");
   const msg = "**Proposal Coach & Pricing Advice** 📝\n\n• **Sauti:** Onyesha ujasiri na uelewa wa tatizo la mteja.\n• **Ushauri:** Kama bei yako iko chini mno ya soko, nitakuambia ukweli.\n\n⚠️ *KAMWE usishauri malipo nje ya jukwaa letu, na usitoe taarifa binafsi!*";
+  await ctx.replyWithMarkdown(msg);
+});
+
+bot.action('create_gig', async (ctx) => {
+  await ctx.answerCbQuery("Tengeneza Gig...");
+  const msg = "**Gig Creation Wizard** 💼\n\nIli kutengeneza Gig yako (Huduma unayouza kwa wateja), andaa maelezo haya:\n1. Kichwa cha Gig (Mf. *Nitatengeneza Website ya kisasa*)\n2. Bei ya kuanzia\n3. Muda wa kukamilisha kazi\n\n*(Baadaye tutaunganisha hii na Database ili ihifadhi moja kwa moja)*";
   await ctx.replyWithMarkdown(msg);
 });
 
