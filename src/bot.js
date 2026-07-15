@@ -1,9 +1,9 @@
-const { Telegraf, Markup } = require('telegraf');
-// Prisma Client itaongezwa hapa
-// const { PrismaClient } = require('@prisma/client');
-// const prisma = new PrismaClient();
+const { Telegraf, Markup, session } = require('telegraf');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
+bot.use(session());
 
 // Mfano wa Admin ID na Roles (Hii itasomwa kutoka Database baadaye)
 const ADMINS = {
@@ -151,8 +151,80 @@ bot.action('proposal_help', async (ctx) => {
 
 bot.action('create_gig', async (ctx) => {
   await ctx.answerCbQuery("Tengeneza Gig...");
-  const msg = "**Gig Creation Wizard** 💼\n\nIli kutengeneza Gig yako (Huduma unayouza kwa wateja), andaa maelezo haya:\n1. Kichwa cha Gig (Mf. *Nitatengeneza Website ya kisasa*)\n2. Bei ya kuanzia\n3. Muda wa kukamilisha kazi\n\n*(Baadaye tutaunganisha hii na Database ili ihifadhi moja kwa moja)*";
-  await ctx.replyWithMarkdown(msg);
+  
+  // Anzisha session
+  ctx.session = ctx.session || {};
+  ctx.session.action = 'creating_gig';
+  ctx.session.step = 'title';
+  
+  await ctx.reply("Tafadhali ingiza **Kichwa cha Gig** yako (Mfano: Nitatengeneza Website ya kisasa):", { parse_mode: 'Markdown' });
+});
+
+// Helper kupata au kutengeneza User
+async function getOrCreateUser(telegramId) {
+  let user = await prisma.user.findUnique({
+    where: { telegramId: BigInt(telegramId) }
+  });
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        telegramId: BigInt(telegramId),
+        role: 'FREELANCER'
+      }
+    });
+  }
+  return user;
+}
+
+// State Machine kwa ajili ya text inputs
+bot.on('text', async (ctx) => {
+  const text = ctx.message.text;
+  const session = ctx.session || {};
+
+  if (session.action === 'creating_gig') {
+    if (session.step === 'title') {
+      session.gigTitle = text;
+      session.step = 'price';
+      await ctx.reply("Safi. Sasa ingiza **Bei** ya kuanzia kwa TZS (Mfano: 50000):", { parse_mode: 'Markdown' });
+    } 
+    else if (session.step === 'price') {
+      const price = parseFloat(text);
+      if (isNaN(price)) {
+        return ctx.reply("❌ Tafadhali ingiza namba pekee kwa ajili ya bei (Mfano: 50000):");
+      }
+      session.gigPrice = price;
+      session.step = 'deliveryTime';
+      await ctx.reply("Sawa. Gig hii itachukua **Muda gani kukamilika?** (Mfano: Siku 3):", { parse_mode: 'Markdown' });
+    }
+    else if (session.step === 'deliveryTime') {
+      session.gigDeliveryTime = text;
+      
+      // Hifadhi kwenye Database
+      try {
+        const user = await getOrCreateUser(ctx.from.id);
+        
+        const newGig = await prisma.gig.create({
+          data: {
+            title: session.gigTitle,
+            price: session.gigPrice,
+            deliveryTime: session.gigDeliveryTime,
+            freelancerId: user.id
+          }
+        });
+        
+        // Futa session baada ya kumaliza
+        ctx.session = null;
+        
+        await ctx.reply(`🎉 **Gig yako imehifadhiwa kikamilifu kwenye Database!**\n\n**Kichwa:** ${newGig.title}\n**Bei:** TZS ${newGig.price}\n**Muda:** ${newGig.deliveryTime}\n\n*(ID ya Gig: ${newGig.id})*`, { parse_mode: 'Markdown' });
+      } catch (error) {
+        console.error(error);
+        await ctx.reply("Samahani, kumetokea hitilafu wakati wa kuhifadhi Gig yako kwenye Database.");
+      }
+    }
+  } else if (text !== '/start') {
+    // Meseji za kawaida (Kama sio wizard na sio /start)
+    await ctx.reply("Sijaelewa. Tafadhali tumia menyu kwa kutuma /start");
+  }
 });
 
 module.exports = { bot };
