@@ -1,7 +1,7 @@
 {
   "name": "giglink-bot",
-  "version": "1.0.0",
-  "description": "GigLink Ops Assistant & Marketplace Bot",
+  "version": "2.0.0",
+  "description": "GigLink Full Freelance Marketplace Bot",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -10,10 +10,11 @@
     "db:generate": "prisma generate"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.15.0",
     "@prisma/client": "^5.14.0",
+    "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "ioredis": "^5.4.1",
     "telegraf": "^4.16.3"
   },
   "devDependencies": {

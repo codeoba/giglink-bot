@@ -2,37 +2,56 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// PostgreSQL ndio database inayotumika sasa
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
+// ── Models ─────────────────────────────────────────────────────────────────
+
 model User {
-  id           Int      @id @default(autoincrement())
-  telegramId   BigInt   @unique
-  firstName    String   @default("")
-  username     String   @default("")
-  role         Role     @default(FREELANCER)
-  adminRole    String?
-  trustScore   Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  jobsPosted   Job[]    @relation("ClientJobs")
-  gigs         Gig[]
-  disputes     Dispute[]
+  id               Int            @id @default(autoincrement())
+  telegramId       BigInt         @unique
+  firstName        String         @default("")
+  username         String         @default("")
+  role             Role           @default(FREELANCER)
+  adminRole        String?
+  trustScore       Float          @default(0)
+  balance          Float          @default(0)
+  level            String         @default("🥉 Novice")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  jobsPosted       Job[]          @relation("ClientJobs")
+  gigs             Gig[]
+  disputes         Dispute[]
+  proposals        Proposal[]     @relation("FreelancerProposals")
+  sentMessages     Message[]      @relation("SentMessages")
+  receivedMessages Message[]      @relation("ReceivedMessages")
+  reviewsGiven     Review[]       @relation("GivenReviews")
+  reviewsReceived  Review[]       @relation("ReceivedReviews")
+  paymentsMade     Payment[]      @relation("PayerPayments")
+  paymentsReceived Payment[]      @relation("PayeePayments")
+  notifications    Notification[]
 }
 
 model Job {
-  id          Int      @id @default(autoincrement())
+  id          Int        @id @default(autoincrement())
   title       String
+  description String?    @db.Text
+  category    String     @default("General")
+  skills      String     @default("")
   budget      Float
   deadline    DateTime?
-  status      JobStatus @default(OPEN)
+  status      JobStatus  @default(OPEN)
   clientId    Int
-  client      User     @relation("ClientJobs", fields: [clientId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  client      User       @relation("ClientJobs", fields: [clientId], references: [id])
+  proposals   Proposal[]
+  messages    Message[]
+  review      Review?
+  payment     Payment?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 }
 
 model Gig {
@@ -40,23 +59,94 @@ model Gig {
   title        String
   description  String?  @db.Text
   packages     String?  @db.Text
+  category     String   @default("General")
+  skills       String   @default("")
   price        Float
   deliveryTime String
+  avgRating    Float    @default(0)
   freelancerId Int
   freelancer   User     @relation(fields: [freelancerId], references: [id])
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
 
-model Dispute {
-  id          Int      @id @default(autoincrement())
-  reason      String
-  status      DisputeStatus @default(PENDING)
-  userId      Int
-  user        User     @relation(fields: [userId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model Proposal {
+  id           Int            @id @default(autoincrement())
+  coverLetter  String         @db.Text
+  price        Float
+  status       ProposalStatus @default(PENDING)
+  freelancerId Int
+  freelancer   User           @relation("FreelancerProposals", fields: [freelancerId], references: [id])
+  jobId        Int
+  job          Job            @relation(fields: [jobId], references: [id])
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 }
+
+model Message {
+  id         Int      @id @default(autoincrement())
+  content    String   @db.Text
+  read       Boolean  @default(false)
+  senderId   Int
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
+  receiverId Int
+  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  jobId      Int?
+  job        Job?     @relation(fields: [jobId], references: [id])
+  createdAt  DateTime @default(now())
+}
+
+model Review {
+  id         Int      @id @default(autoincrement())
+  rating     Int
+  comment    String?  @db.Text
+  reviewerId Int
+  reviewer   User     @relation("GivenReviews", fields: [reviewerId], references: [id])
+  revieweeId Int
+  reviewee   User     @relation("ReceivedReviews", fields: [revieweeId], references: [id])
+  jobId      Int      @unique
+  job        Job      @relation(fields: [jobId], references: [id])
+  createdAt  DateTime @default(now())
+}
+
+model Payment {
+  id           Int           @id @default(autoincrement())
+  amount       Float
+  commission   Float         @default(0)
+  status       PaymentStatus @default(PENDING)
+  escrowStatus EscrowStatus  @default(HELD)
+  mpesaRef     String?
+  jobId        Int           @unique
+  job          Job           @relation(fields: [jobId], references: [id])
+  payerId      Int
+  payer        User          @relation("PayerPayments", fields: [payerId], references: [id])
+  payeeId      Int
+  payee        User          @relation("PayeePayments", fields: [payeeId], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Dispute {
+  id        Int           @id @default(autoincrement())
+  reason    String        @db.Text
+  status    DisputeStatus @default(PENDING)
+  userId    Int
+  user      User          @relation(fields: [userId], references: [id])
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  content   String   @db.Text
+  type      String   @default("INFO")
+  read      Boolean  @default(false)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+// ── Enums ──────────────────────────────────────────────────────────────────
 
 enum Role {
   FREELANCER
@@ -71,8 +161,27 @@ enum JobStatus {
   CANCELLED
 }
 
+enum ProposalStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 enum DisputeStatus {
   PENDING
   UNDER_REVIEW
   RESOLVED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  REFUNDED
+  FAILED
+}
+
+enum EscrowStatus {
+  HELD
+  RELEASED
+  REFUNDED
 }
