@@ -133,8 +133,12 @@ bot.action('back_home', async (ctx) => {
 
 bot.action('post_job', async (ctx) => {
   await ctx.answerCbQuery("Job Wizard...");
-  const msg = "**Job Posting Wizard** 🧙‍♂️\n\nTutakusaidia kupitia hatua hizi:\n1. Kategoria na Ustadi\n2. Bajeti na Muda\n3. Idhini na Kuchapisha\n\n*(Weka kichwa cha kazi hapa chini kuanza)*";
-  await ctx.replyWithMarkdown(msg);
+  
+  ctx.session = ctx.session || {};
+  ctx.session.action = 'posting_job';
+  ctx.session.step = 'title';
+  
+  await ctx.reply("Weka **Kichwa cha kazi (Job Title)** unayotaka kuajiri mtu (Mfano: Nahitaji Logo Designer):", { parse_mode: 'Markdown' });
 });
 
 bot.action('smart_match', async (ctx) => {
@@ -231,6 +235,49 @@ bot.on('text', async (ctx) => {
       } catch (error) {
         console.error(error);
         await ctx.reply("Samahani, kumetokea hitilafu wakati wa kuhifadhi Gig yako kwenye Database.");
+      }
+    }
+  } else if (session.action === 'posting_job') {
+    if (session.step === 'title') {
+      session.jobTitle = text;
+      session.step = 'budget';
+      await ctx.reply("Sawa! Sasa weka **Bajeti** yako kwa TZS (Mfano: 150000):", { parse_mode: 'Markdown' });
+    }
+    else if (session.step === 'budget') {
+      const budget = parseFloat(text);
+      if (isNaN(budget)) {
+        return ctx.reply("❌ Tafadhali ingiza namba pekee kwa ajili ya bajeti (Mfano: 150000):");
+      }
+      session.jobBudget = budget;
+      session.step = 'deadline';
+      await ctx.reply("Safi. Kazi hii ikamilike ndani ya **Siku ngapi**? (Ingiza namba tu, Mfano: 7):", { parse_mode: 'Markdown' });
+    }
+    else if (session.step === 'deadline') {
+      const days = parseInt(text);
+      if (isNaN(days)) {
+        return ctx.reply("❌ Tafadhali ingiza namba ya siku (Mfano: 7):");
+      }
+      const deadlineDate = new Date();
+      deadlineDate.setDate(deadlineDate.getDate() + days);
+      session.jobDeadline = deadlineDate;
+      
+      try {
+        const user = await getOrCreateUser(ctx.from.id);
+        
+        const newJob = await prisma.job.create({
+          data: {
+            title: session.jobTitle,
+            budget: session.jobBudget,
+            deadline: session.jobDeadline,
+            clientId: user.id
+          }
+        });
+        
+        ctx.session = null;
+        await ctx.reply(`🎉 **Kazi yako imepostiwa kikamilifu kwenye Database!**\n\n**Kichwa:** ${newJob.title}\n**Bajeti:** TZS ${newJob.budget}\n**Siku:** ${days}\n\n*(ID ya Job: ${newJob.id})*`, { parse_mode: 'Markdown' });
+      } catch (error) {
+        console.error(error);
+        await ctx.reply("Samahani, kumetokea hitilafu wakati wa kuhifadhi Kazi yako kwenye Database.");
       }
     }
   } else if (text !== '/start') {
