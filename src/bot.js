@@ -184,9 +184,19 @@ bot.on('text', async (ctx) => {
   if (session.action === 'creating_gig') {
     if (session.step === 'title') {
       session.gigTitle = text;
-      session.step = 'price';
-      await ctx.reply("Safi. Sasa ingiza **Bei** ya kuanzia kwa TZS (Mfano: 50000):", { parse_mode: 'Markdown' });
+      session.step = 'description';
+      await ctx.reply("Safi! Sasa tupe **Maelezo ya kina (Description)** kuhusu Gig yako. Unaweza kuandika kwa kirefu nini utafanya:", { parse_mode: 'Markdown' });
     } 
+    else if (session.step === 'description') {
+      session.gigDescription = text;
+      session.step = 'packages';
+      await ctx.reply("Sawa! Sasa tuambie kuhusu **Vifurushi (Packages)** unavyotoa. Mfano: 'Basic ni 10k, Standard ni 20k'. Au kama ni package moja, elezea tu hapo:", { parse_mode: 'Markdown' });
+    }
+    else if (session.step === 'packages') {
+      session.gigPackages = text;
+      session.step = 'price';
+      await ctx.reply("Safi. Sasa ingiza **Bei** ya kuanzia (Starting At) kwa TZS (Mfano: 50000):", { parse_mode: 'Markdown' });
+    }
     else if (session.step === 'price') {
       const price = parseFloat(text);
       if (isNaN(price)) {
@@ -206,6 +216,8 @@ bot.on('text', async (ctx) => {
         const newGig = await prisma.gig.create({
           data: {
             title: session.gigTitle,
+            description: session.gigDescription,
+            packages: session.gigPackages,
             price: session.gigPrice,
             deliveryTime: session.gigDeliveryTime,
             freelancerId: user.id
@@ -215,7 +227,7 @@ bot.on('text', async (ctx) => {
         // Futa session baada ya kumaliza
         ctx.session = null;
         
-        await ctx.reply(`🎉 **Gig yako imehifadhiwa kikamilifu kwenye Database!**\n\n**Kichwa:** ${newGig.title}\n**Bei:** TZS ${newGig.price}\n**Muda:** ${newGig.deliveryTime}\n\n*(ID ya Gig: ${newGig.id})*`, { parse_mode: 'Markdown' });
+        await ctx.reply(`🎉 **Gig yako imehifadhiwa kikamilifu kwenye Database!**\n\n**Kichwa:** ${newGig.title}\n**Maelezo:** ${newGig.description}\n**Vifurushi:** ${newGig.packages}\n**Bei:** TZS ${newGig.price}\n**Muda:** ${newGig.deliveryTime}\n\n*(ID ya Gig: ${newGig.id})*`, { parse_mode: 'Markdown' });
       } catch (error) {
         console.error(error);
         await ctx.reply("Samahani, kumetokea hitilafu wakati wa kuhifadhi Gig yako kwenye Database.");
