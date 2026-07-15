@@ -11,8 +11,10 @@ datasource db {
 model User {
   id           Int      @id @default(autoincrement())
   telegramId   BigInt   @unique
-  role         Role     @default(FREELANCER) // FREELANCER, CLIENT, ADMIN, n.k.
-  adminRole    String?  // Super Admin, Finance Team, Trust & Safety
+  firstName    String   @default("")
+  username     String   @default("")
+  role         Role     @default(FREELANCER)
+  adminRole    String?
   trustScore   Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
