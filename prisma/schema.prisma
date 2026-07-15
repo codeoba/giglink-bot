@@ -2,9 +2,9 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Kwa aaPanel, MySQL ndio database inayotumika sana, lakini kama unatumia PostgreSQL badilisha "mysql" iwe "postgresql"
+// PostgreSQL ndio database inayotumika sasa
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
