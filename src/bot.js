@@ -5,6 +5,15 @@ const prisma = new PrismaClient();
 const bot = new Telegraf(process.env.BOT_TOKEN);
 bot.use(session());
 
+// Tengeneza Menyu nzuri ya Telegram (Bot Commands Menu)
+bot.telegram.setMyCommands([
+  { command: 'start', description: '🏠 Anza upya (Menyu Kuu)' },
+  { command: 'gigs', description: '🔍 Tafuta Gigs za Freelancers' },
+  { command: 'jobs', description: '💼 Tafuta Kazi zilizopostiwa' },
+  { command: 'profile', description: '👤 Tazama/Hariri Profile yako' },
+  { command: 'help', description: '❓ Pata msaada na maelekezo' }
+]).catch(err => console.error("Kushindwa kuseti menyu ya commands:", err));
+
 // Mfano wa Admin ID na Roles (Hii itasomwa kutoka Database baadaye)
 const ADMINS = {
   123456789: "Super Admin",
