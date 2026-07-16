@@ -792,7 +792,7 @@ bot.on('text', async (ctx) => {
 
         if (accepted) {
           ctx.session = { action: 'reviewing', step: 'rating', jobId: s.jobId, revieweeId: accepted.freelancerId };
-          await ctx.reply('⭐ Piga kura kwa Freelancer (1-5 nyota):', { reply_markup: { inline_keyboard: [[1,2,3,4,5].map(n => ({ text: '⭐'.repeat(n), callback_data: `sr_${n}` }))]] } });
+          await ctx.reply('⭐ Piga kura kwa Freelancer (1-5 nyota):', { reply_markup: { inline_keyboard: [[1,2,3,4,5].map(n => ({ text: '⭐'.repeat(n), callback_data: `sr_${n}` }))] } });
           // Arifa Freelancer
           const fl = await prisma.user.findUnique({ where: { id: accepted.freelancerId } });
           if (fl) await notify(bot, fl.telegramId, `💰 *Malipo Yameingia Escrow!*\n\nKazi: *${job?.title}*\nKiasi chako: TZS ${freelancerAmount.toLocaleString()}\n\nAsante kwa kazi nzuri! 🙏`, 'PAYMENT');
