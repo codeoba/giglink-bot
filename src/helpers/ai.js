@@ -68,4 +68,97 @@ Hakuna utangulizi - anza moja kwa moja.`;
   return callGemini(prompt);
 }
 
-module.exports = { improveGigDescription, generateJobBrief };
+/**
+ * Tengeneza Mtihani wa Skill Verification
+ */
+async function generateSkillTest(skill) {
+  const prompt = `Wewe ni Technical Recruiter Mwandamizi (GigLink).
+Tengeneza maswali 3 magumu ya Multiple Choice kuthibitisha ujuzi wa mtu katika "${skill}".
+Jibu kwa JSON format kama ifuatavyo pekee (usijumuishe text nyingine, wala usiweke \`\`\`json):
+[
+  {
+    "q": "Swali",
+    "options": ["A: Jibu", "B: Jibu", "C: Jibu", "D: Jibu"],
+    "answer": "A"
+  }
+]`;
+  const result = await callGemini(prompt);
+  try {
+    // Safisha majibu kama ina ```json
+    const cleanStr = result.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanStr);
+  } catch(e) {
+    console.error('[AI] Kosa kwenye parse JSON ya Skill Test:', e);
+    return null;
+  }
+}
+
+/**
+ * Sahihisha Mtihani wa Skill
+ */
+function evaluateSkillTest(questions, userAnswers) {
+  let score = 0;
+  for(let i=0; i<questions.length; i++) {
+    if(questions[i].answer.startsWith(userAnswers[i])) score += 1;
+  }
+  return (score / questions.length) * 100;
+}
+
+/**
+ * AI Interview: Uliza Swali
+ */
+async function generateInterviewQuestion(jobTitle, jobDescription, previousQAs = []) {
+  const prompt = `Wewe ni Mteja anayetafuta Freelancer kwa kazi ya: "${jobTitle}".
+Maelezo: "${jobDescription}".
+Haya ni mazungumzo yenu hadi sasa:
+${previousQAs.map(qa => \`Mteja: \${qa.q}\nFreelancer: \${qa.a}\`).join('\n')}
+
+Uliza swali MOJA muhimu na la kiufundi la kumuhoji huyu freelancer ili kujua kama ana uwezo wa kufanya hii kazi.
+Uliza kwa Kiswahili. Jibu lako liwe swali tu (hakuna maelezo mengine).`;
+  return callGemini(prompt);
+}
+
+/**
+ * AI Interview: Tathmini
+ */
+async function evaluateInterview(jobTitle, jobDescription, qaHistory) {
+  const prompt = `Wewe ni Mshauri wa Ajira (GigLink). Mteja anatafuta mtu kwa kazi: "${jobTitle}".
+Maelezo: "${jobDescription}".
+Huu hapa ni muhtasari wa mahojiano kati ya Mteja (wewe) na Freelancer:
+${qaHistory.map(qa => \`Swali: \${qa.q}\nJibu: \${qa.a}\`).join('\n')}
+
+Tathmini uwezo wa huyu Freelancer kwa kazi hii. Toa muhtasari (max maneno 100) na umpe asilimia (%).
+Format jibu:
+Asilimia: XX%
+Hitimisho: ...`;
+  return callGemini(prompt);
+}
+
+/**
+ * Predictive Success Score
+ */
+async function calculatePredictiveScore(jobBudget, jobDeadline, freelancerLevel, freelancerTrustScore, proposalPrice) {
+  const prompt = `Kama AI Predictive Engine (GigLink), tabiri asilimia ya uwezekano wa mradi huu kufanikiwa.
+Data:
+- Bajeti ya Mteja: TZS ${jobBudget}
+- Bei iliyopendekezwa: TZS ${proposalPrice}
+- Muda (Deadline): ${jobDeadline || 'Haijawekwa'}
+- Level ya Freelancer: ${freelancerLevel}
+- Trust Score ya Freelancer: ${freelancerTrustScore}
+
+Toa jibu kwa Kiswahili fupi lenye:
+1. Asilimia ya Mafanikio (mf. 85%)
+2. Sababu kuu (max sentensi 2).
+Usiongeze maneno ya utangulizi.`;
+  return callGemini(prompt);
+}
+
+module.exports = { 
+  improveGigDescription, 
+  generateJobBrief,
+  generateSkillTest,
+  evaluateSkillTest,
+  generateInterviewQuestion,
+  evaluateInterview,
+  calculatePredictiveScore
+};

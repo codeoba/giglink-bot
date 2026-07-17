@@ -5,8 +5,10 @@ const { Telegraf, Markup, session } = require('telegraf');
 const { PrismaClient }              = require('@prisma/client');
 const { notify }                    = require('./helpers/notify');
 const { getLevel, getStars }        = require('./helpers/badges');
-const { improveGigDescription, generateJobBrief } = require('./helpers/ai');
+const { improveGigDescription, generateJobBrief, generateSkillTest, evaluateSkillTest, generateInterviewQuestion, evaluateInterview, calculatePredictiveScore } = require('./helpers/ai');
+const { generateContractPDF } = require('./helpers/contracts');
 const { initiateSTKPush, calculateCommission }    = require('./helpers/payments');
+const fs = require('fs');
 
 const prisma = new PrismaClient();
 const bot    = new Telegraf(process.env.BOT_TOKEN);
@@ -478,14 +480,26 @@ bot.action(/^vpr_(\d+)$/, async (ctx) => {
 
 // Ona ombi moja
 bot.action(/^vp_(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery('');
+  await ctx.answerCbQuery('Inachambua Data...', { show_alert: false });
   const pid = parseInt(ctx.match[1]);
   try {
     const p = await prisma.proposal.findUnique({ where: { id: pid }, include: { freelancer: true, job: true } });
     if (!p) return ctx.reply('Ombi halipatikani.');
-    const msg = `📩 *Ombi kutoka ${p.freelancer.firstName || 'Freelancer'}*\n${p.freelancer.level} | ⭐ ${p.freelancer.trustScore.toFixed(1)}\n\n*Cover Letter:*\n${p.coverLetter}\n\n*Bei:* TZS ${p.price.toLocaleString()}`;
+    
+    // AI Predictive Score
+    let aiScore = '';
+    const scoreObj = await calculatePredictiveScore(p.job.budget, p.job.deadline, p.freelancer.level, p.freelancer.trustScore, p.price);
+    if (scoreObj) {
+      aiScore = `\n\n🤖 *AI Predictive Score:*\n_${scoreObj}_`;
+    }
+
+    const msg = `📩 *Ombi kutoka ${p.freelancer.firstName || 'Freelancer'}*\n${p.freelancer.level} | ⭐ ${p.freelancer.trustScore.toFixed(1)}\n\n*Cover Letter:*\n${p.coverLetter}\n\n*Bei:* TZS ${p.price.toLocaleString()}${aiScore}`;
     const btns = p.status === 'PENDING'
-      ? [[Markup.button.callback('✅ Kubali', `acc_${pid}`), Markup.button.callback('❌ Kataa', `rej_${pid}`)], [Markup.button.callback('🔙 Rudi', `vpr_${p.jobId}`)]]
+      ? [
+          [Markup.button.callback('✅ Kubali', `acc_${pid}`), Markup.button.callback('❌ Kataa', `rej_${pid}`)], 
+          [Markup.button.callback('🤖 Fanya AI Interview', `ai_int_${pid}`)],
+          [Markup.button.callback('🔙 Rudi', `vpr_${p.jobId}`)]
+        ]
       : [[Markup.button.callback('🔙 Rudi', `vpr_${p.jobId}`)]];
     await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: btns } });
   } catch (err) { console.error(err); await ctx.reply('Tatizo limetokea.'); }
@@ -503,17 +517,45 @@ bot.action(/^acc_(\d+)$/, async (ctx) => {
       prisma.proposal.updateMany({ where: { jobId: p.jobId, id: { not: pid } }, data: { status: 'REJECTED' } }),
       prisma.job.update({ where: { id: p.jobId }, data: { status: 'IN_PROGRESS' } })
     ]);
-    await ctx.answerCbQuery('Ombi limekubaliwa! ✅');
-    await ctx.editMessageText(
-      `✅ *Umekubali ombi la ${p.freelancer.firstName}!*\nKazi: *${p.job.title}* | Bei: TZS ${p.price.toLocaleString()}\n\nFreelancer amepata taarifa. Unaweza kuanza mazungumzo!`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
-        [Markup.button.callback(`💬 Zungumza na ${p.freelancer.firstName}`, `msg_${p.freelancer.id}_${p.jobId}`)],
-        [Markup.button.callback('💸 Lipa & Maliza Kazi', `cplt_${p.jobId}`)]
-      ]}}
-    );
-    await notify(bot, p.freelancer.telegramId,
-      `🎉 *Ombi Lako Limekubaliwa!*\n\nKazi: *${p.job.title}*\nBei: TZS ${p.price.toLocaleString()}\n\nAnza kazi sasa hivi! 💪`, 'PROPOSAL'
-    );
+    
+    // Auto-Generate Contract
+    await ctx.reply('📝 *Inatengeneza Mkataba wa Kisheria (PDF)...*', { parse_mode: 'Markdown' });
+    let pdfPath = null;
+    try {
+      pdfPath = await generateContractPDF(p.job, p.job.client, p.freelancer, p.price);
+    } catch(err) {
+      console.error('Contract error', err);
+    }
+
+    if (pdfPath && fs.existsSync(pdfPath)) {
+      // Create contract record
+      const contract = await prisma.contract.create({
+        data: { jobId: p.jobId, content: 'Tazama PDF', pdfUrl: pdfPath }
+      });
+      
+      const caption = `✅ *Kazi Imeanza: ${p.job.title}*\n\nHuu hapa ni mkataba wa makubaliano yenu. Kazi inaanza rami!`;
+      await ctx.replyWithDocument({ source: pdfPath }, { 
+        caption, parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [
+          [Markup.button.callback(`💬 Zungumza na ${p.freelancer.firstName}`, `msg_${p.freelancer.id}_${p.jobId}`)],
+          [Markup.button.callback('💸 Weka Pesa Escrow (M-Pesa)', `cplt_${p.jobId}`)]
+        ]}
+      });
+      await notify(bot, p.freelancer.telegramId, caption, 'PROPOSAL');
+      await bot.telegram.sendDocument(p.freelancer.telegramId, { source: pdfPath });
+    } else {
+      // Fallback if no PDF
+      await ctx.editMessageText(
+        `✅ *Umekubali ombi la ${p.freelancer.firstName}!*\nKazi: *${p.job.title}* | Bei: TZS ${p.price.toLocaleString()}\n\nFreelancer amepata taarifa. Unaweza kuanza mazungumzo!`,
+        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+          [Markup.button.callback(`💬 Zungumza na ${p.freelancer.firstName}`, `msg_${p.freelancer.id}_${p.jobId}`)],
+          [Markup.button.callback('💸 Weka Pesa Escrow (M-Pesa)', `cplt_${p.jobId}`)]
+        ]}}
+      );
+      await notify(bot, p.freelancer.telegramId,
+        `🎉 *Ombi Lako Limekubaliwa!*\n\nKazi: *${p.job.title}*\nBei: TZS ${p.price.toLocaleString()}\n\nAnza kazi sasa hivi! 💪`, 'PROPOSAL'
+      );
+    }
   } catch (err) { console.error(err); await ctx.answerCbQuery('Hitilafu.', { show_alert: true }); }
 });
 
@@ -803,10 +845,108 @@ bot.on('text', async (ctx) => {
     } catch (err) { console.error(err); await ctx.reply('Hitilafu imetokea. Jaribu tena.'); }
   }
 
+  // ── AI SKILL VERIFICATION (Mtihani) ──────────────────────────────────
+  else if (s.action === 'verifying_skill' && s.step === 'taking_test') {
+    const qIndex = s.qIndex || 0;
+    const questions = s.questions;
+    
+    if (!s.answers) s.answers = [];
+    s.answers.push(text.toUpperCase().charAt(0)); // A, B, C, D
+    
+    if (qIndex + 1 < questions.length) {
+      s.qIndex = qIndex + 1;
+      const q = questions[s.qIndex];
+      await ctx.reply(`🧠 *Swali ${s.qIndex + 1}/${questions.length}:*\n\n${q.q}\n${q.options.join('\n')}\n\nJibu herufi moja tu (A, B, C, au D):`, { parse_mode: 'Markdown' });
+    } else {
+      // Sahihisha
+      const score = evaluateSkillTest(questions, s.answers);
+      ctx.session = null;
+      if (score >= 80) {
+        const user = await getOrCreateUser(ctx);
+        await prisma.skillBadge.create({ data: { skillName: s.skillName, score, userId: user.id } });
+        await ctx.reply(`🎉 *Hongera sana!*\n\nUmepata ${score}%. Umefaulu mtihani.\nSasa una "Verified Badge" ya ${s.skillName} kwenye profile yako! 🏅`, { parse_mode: 'Markdown' });
+      } else {
+        await ctx.reply(`😔 *Pole, umepata ${score}%.*\n\nUnahitaji 80% kupata Verified Badge ya ${s.skillName}. Jifunze zaidi na ujaribu tena baadaye.`, { parse_mode: 'Markdown' });
+      }
+    }
+  }
+
+  // ── AI INTERVIEW (Mock) ──────────────────────────────────────────────
+  else if (s.action === 'ai_interviewing' && s.step === 'answering') {
+    if (!s.history) s.history = [];
+    s.history.push({ q: s.lastQuestion, a: text });
+    
+    if (s.history.length >= 3) {
+      // Maliza Interview
+      await ctx.reply('🤖 Inachambua majibu yako na kutuma tathmini kwa Mteja...', { parse_mode: 'Markdown' });
+      const evaluation = await evaluateInterview(s.jobTitle, s.jobDescription, s.history);
+      
+      const proposal = await prisma.proposal.findUnique({ where: { id: s.proposalId }, include: { job: { include: { client: true } } } });
+      if (proposal && proposal.job.client) {
+        await notify(bot, proposal.job.client.telegramId, `🤖 *Muhtasari wa AI Interview:*\n\nFreelancer: ${ctx.from.first_name}\nKazi: ${s.jobTitle}\n\n${evaluation}`, 'PROPOSAL');
+      }
+      ctx.session = null;
+      await ctx.reply('✅ *Interview Imekamilika!*\n\nMuhtasari wa uwezo wako umetumiwa kwa Mteja. Kila la kheri! 🤞', { parse_mode: 'Markdown' });
+    } else {
+      // Swali linalofuata
+      await ctx.reply('🤖 Inaandaa swali lingine...');
+      const nextQ = await generateInterviewQuestion(s.jobTitle, s.jobDescription, s.history);
+      s.lastQuestion = nextQ;
+      await ctx.reply(`🎙️ *AI Interview (Swali ${s.history.length + 1}/3):*\n\n${nextQ}\n\n_Jibu kwa kirefu (Voice note au Text):_`, { parse_mode: 'Markdown' });
+    }
+  }
+
   // ── DEFAULT ────────────────────────────────────────────────────────────
   else {
     await ctx.reply('Sijaelewa. Tuma /start kuanza au /help kwa msaada.');
   }
+});
+
+// ── ADVANCED ACTIONS: Skill Verification ──────────────────────────────
+bot.command('verify_skill', async (ctx) => {
+  const skill = ctx.message.text.split(' ').slice(1).join(' ');
+  if (!skill) return ctx.reply('❌ Tafadhali taja ujuzi.\nMfano: `/verify_skill React Native`', { parse_mode: 'Markdown' });
+  
+  await ctx.reply(`🤖 Ninaandaa mtihani mfupi wa kuthibitisha ujuzi wako katika *${skill}*...\nSubiri kidogo...`, { parse_mode: 'Markdown' });
+  const questions = await generateSkillTest(skill);
+  if (!questions || !questions.length) return ctx.reply('❌ Imeshindwa kutengeneza mtihani. Jaribu tena baadaye.');
+  
+  ctx.session = { action: 'verifying_skill', step: 'taking_test', skillName: skill, questions, qIndex: 0 };
+  const q = questions[0];
+  await ctx.reply(`🧠 *Mtihani wa ${skill} (Swali 1/${questions.length}):*\n\n${q.q}\n${q.options.join('\n')}\n\nJibu herufi moja tu (A, B, C, au D):`, cancelExtra({ parse_mode: 'Markdown' }));
+});
+
+// ── ADVANCED ACTIONS: AI Interview Initiation ─────────────────────────
+bot.action(/^ai_int_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('Inaanzisha AI Interview...');
+  const pid = parseInt(ctx.match[1]);
+  try {
+    const p = await prisma.proposal.findUnique({ where: { id: pid }, include: { freelancer: true, job: true } });
+    if (!p) return ctx.reply('Ombi halipatikani.');
+    
+    await ctx.editMessageText(`✅ Umeanzisha AI Interview kwa ${p.freelancer.firstName}. Freelancer atapewa maswali na utapata tathmini.`, { parse_mode: 'Markdown' });
+    
+    // Anzisha state kwa freelancer
+    await bot.telegram.sendMessage(p.freelancer.telegramId, `🚨 *MTEJA ANAKUFANYIA USAILI (INTERVIEW) YA AI!*\n\nKazi: ${p.job.title}\n\nMteja anataka uhakika zaidi kabla hajakupa kazi. AI yetu itakuhoji maswali 3 ya kiufundi.\n\nUko tayari? Bofya "Anza Interview" chini.`, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: [[Markup.button.callback('▶️ Anza Interview', `start_int_${pid}`)]] }
+    });
+  } catch (e) { console.error(e); }
+});
+
+bot.action(/^start_int_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('');
+  const pid = parseInt(ctx.match[1]);
+  try {
+    const p = await prisma.proposal.findUnique({ where: { id: pid }, include: { job: true } });
+    if (!p) return ctx.reply('Ombi limefutwa.');
+    
+    await ctx.reply('🤖 Inaandaa swali lako la kwanza...');
+    const firstQ = await generateInterviewQuestion(p.job.title, p.job.description);
+    
+    ctx.session = { action: 'ai_interviewing', step: 'answering', proposalId: pid, jobTitle: p.job.title, jobDescription: p.job.description, lastQuestion: firstQ };
+    await ctx.reply(`🎙️ *AI Interview (Swali 1/3):*\n\n${firstQ}\n\n_Jibu kwa kirefu:_`, { parse_mode: 'Markdown' });
+  } catch(e) { console.error(e); }
 });
 
 module.exports = { bot };
