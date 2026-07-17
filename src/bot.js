@@ -27,18 +27,20 @@ if (process.env.ADMIN_IDS) {
 
 // ── Bot Commands Menu ─────────────────────────────────────────────────────────
 bot.telegram.setMyCommands([
-  { command: 'start',    description: '🏠 Anza upya — Menyu Kuu' },
-  { command: 'gigs',     description: '🔍 Tafuta Gigs (gigs logo, gigs web, n.k.)' },
-  { command: 'jobs',     description: '💼 Tafuta Kazi (jobs design, jobs code, n.k.)' },
-  { command: 'profile',  description: '👤 Profile yako na takwimu' },
-  { command: 'messages', description: '💬 Mazungumzo yako' },
-  { command: 'history',  description: '📋 Historia ya kazi na malipo' },
-  { command: 'top',      description: '🏆 Leaderboard — Freelancers bora 10' },
-  { command: 'wallet',   description: '👝 Angalia salio lako la GigLink' },
-  { command: 'withdraw', description: '💸 Toa pesa kwenda M-Pesa' },
-  { command: 'career',   description: '📈 Angalia ramani yako ya mafanikio (Career Path)' },
-  { command: 'retainer', description: '🔄 Weka mkataba wa malipo ya kila mwezi' },
-  { command: 'help',     description: '❓ Msaada na maelekezo' }
+  { command: 'start',        description: '🏠 Anza upya — Menyu Kuu' },
+  { command: 'gigs',         description: '🔍 Tafuta Gigs (gigs logo, gigs web, n.k.)' },
+  { command: 'jobs',         description: '💼 Tafuta Kazi (jobs design, jobs code, n.k.)' },
+  { command: 'profile',      description: '👤 Profile yako na takwimu' },
+  { command: 'messages',     description: '💬 Mazungumzo yako' },
+  { command: 'wallet',       description: '👝 Angalia salio lako la GigLink' },
+  { command: 'withdraw',     description: '💸 Toa pesa kwenda M-Pesa' },
+  { command: 'career',       description: '📈 Angalia ramani yako ya mafanikio (Career Path)' },
+  { command: 'invite',       description: '🎁 Pata Referral Link yako na ujishindie TZS 5,000' },
+  { command: 'leaderboard',  description: '🏆 Orodha ya Freelancers Bora' },
+  { command: 'dashboard',    description: '📊 Uchambuzi wa Mapato Yako (BI Dashboard)' },
+  { command: 'client_stats', description: '📉 Matumizi yako kama Mteja (Client Spend)' },
+  { command: 'trends',       description: '📈 Ripoti ya Mwenendo wa Soko (AI Market Trends)' },
+  { command: 'help',         description: '❓ Msaada na maelekezo' }
 ]).catch(() => {});
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,6 +80,54 @@ async function refreshLevel(userId) {
   await prisma.user.update({ where: { id: userId }, data: { level } });
   return level;
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// GLOBAL MIDDLEWARE (GAMIFICATION & REFERRALS)
+// ═════════════════════════════════════════════════════════════════════════════
+const { updateStreak } = require('./helpers/gamification');
+
+bot.use(async (ctx, next) => {
+  try {
+    if (ctx.from) {
+      const user = await getOrCreateUser(ctx);
+      if (user) {
+        // Handle Referrals if payload exists and user has no referredById
+        if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/start REF_')) {
+          const refCode = ctx.message.text.split(' ')[1];
+          if (!user.referredById && user.referralCode !== refCode) {
+            const referrer = await prisma.user.findUnique({ where: { referralCode: refCode } });
+            if (referrer) {
+              await prisma.user.update({ where: { id: user.id }, data: { referredById: referrer.id } });
+              // Create Reward
+              await prisma.referralReward.create({
+                data: {
+                  referrerId: referrer.id,
+                  referredUserId: user.id,
+                  amount: 5000,
+                  status: 'PENDING'
+                }
+              });
+              try {
+                await bot.telegram.sendMessage(Number(referrer.telegramId), `🎉 *Hongera!* Rafiki yako ametumia Referral Link yako kujiunga. Utapokea TZS 5,000 pindi atakapokamilisha kazi ya kwanza.`, { parse_mode: 'Markdown' });
+              } catch (e) {}
+            }
+          }
+        }
+        
+        // Update streak
+        const streakData = await updateStreak(user.id);
+        if (streakData && streakData.earnedBadge) {
+          try {
+            await ctx.reply(`🔥 *Hongera!* Umepata Badge Mpya: ${streakData.earnedBadge}\n\nAsante kwa kuendelea kuwa mwaminifu kwenye GigLink!`, { parse_mode: 'Markdown' });
+          } catch(e){}
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Middleware error:', err);
+  }
+  return next();
+});
 
 // ═════════════════════════════════════════════════════════════════════════════
 // COMMANDS
@@ -1268,6 +1318,93 @@ bot.action('tr_msg', async (ctx) => {
       reply_to_message_id: ctx.callbackQuery.message.message_id 
     });
   } catch (e) { console.error(e); }
+});
+
+// ── Phase 5: Gamification & Analytics ──────────────────────────────────────
+bot.command('invite', async (ctx) => {
+  try {
+    const user = await getOrCreateUser(ctx);
+    let refCode = user.referralCode;
+    if (!refCode) {
+      refCode = 'REF_' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      await prisma.user.update({ where: { id: user.id }, data: { referralCode: refCode } });
+    }
+    const link = `https://t.me/GigLinkBot?start=${refCode}`;
+    await ctx.reply(`🎁 *GigLink Referral Program*\n\nAlika marafiki na upate *TZS 5,000* kwa kila rafiki atakayekamilisha kazi yake ya kwanza!\n\n🔗 Link yako ya mwaliko:\n\`${link}\``, { parse_mode: 'Markdown' });
+  } catch (e) {
+    console.error(e);
+  }
+});
+
+bot.command('leaderboard', async (ctx) => {
+  try {
+    const parts = ctx.message.text.split(' ');
+    const category = parts[1] || null;
+    const { getLeaderboard } = require('./helpers/gamification');
+    const leaders = await getLeaderboard(category);
+    
+    if (!leaders.length) return ctx.reply('Bado hakuna takwimu za Leaderboard.');
+    
+    let msg = `🏆 *Top 10 Freelancers* ${category ? `(${category})` : ''}\n\n`;
+    leaders.forEach((l, i) => {
+      msg += `${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🎖️'} *${l.firstName}* (Score: ${l.trustScore})\n`;
+    });
+    await ctx.reply(msg, { parse_mode: 'Markdown' });
+  } catch (e) { console.error(e); }
+});
+
+bot.command('dashboard', async (ctx) => {
+  try {
+    const user = await getOrCreateUser(ctx);
+    
+    // Calculate Personal BI Metrics
+    const completedProposals = await prisma.proposal.findMany({
+      where: { freelancerId: user.id, status: 'ACCEPTED', job: { status: 'COMPLETED' } },
+      include: { job: true }
+    });
+    
+    let totalIncome = 0;
+    let clients = new Set();
+    completedProposals.forEach(p => {
+      totalIncome += p.price;
+      clients.add(p.job.clientId);
+    });
+    
+    const returnClients = clients.size > 0 ? ((completedProposals.length - clients.size) / clients.size) * 100 : 0;
+
+    let msg = `📊 *Uchambuzi Wako (Personal BI Dashboard)*\n\n`;
+    msg += `💰 Jumla ya Mapato: *TZS ${totalIncome.toLocaleString()}*\n`;
+    msg += `👥 Wateja Tofauti: *${clients.size}*\n`;
+    msg += `🔄 Wateja Wanaorudi: *${returnClients.toFixed(1)}%*\n`;
+    msg += `🔥 Streak Yako: *Siku ${user.streakDays}*\n`;
+
+    await ctx.reply(msg, { parse_mode: 'Markdown' });
+  } catch (e) { console.error(e); }
+});
+
+bot.command('client_stats', async (ctx) => {
+  try {
+    const user = await getOrCreateUser(ctx);
+    const jobs = await prisma.job.findMany({ where: { clientId: user.id, status: 'COMPLETED' }, include: { payment: true } });
+    
+    let totalSpent = 0;
+    jobs.forEach(j => { if (j.payment) totalSpent += j.payment.amount; });
+    
+    await ctx.reply(`📉 *Matumizi Yako (Client Spend Analytics)*\n\nJumla ya Miradi: *${jobs.length}*\nJumla ya Fedha Uliyotumia: *TZS ${totalSpent.toLocaleString()}*\n\n_Asante kwa kukuza uchumi na GigLink!_`, { parse_mode: 'Markdown' });
+  } catch (e) { console.error(e); }
+});
+
+bot.command('trends', async (ctx) => {
+  try {
+    await ctx.reply('📈 *Inachambua soko...*\nInakusanya data za miradi ya hivi karibuni...', { parse_mode: 'Markdown' });
+    const recentJobs = await prisma.job.findMany({ take: 20, orderBy: { createdAt: 'desc' } });
+    const categories = recentJobs.map(j => j.category).join(', ');
+    
+    const { generateMarketTrends } = require('./helpers/ai');
+    const report = await generateMarketTrends(categories || 'General, IT, Design, Writing');
+    
+    await ctx.reply(`📊 *Ripoti ya Soko (AI Market Trends)*\n\n${report}`, { parse_mode: 'Markdown' });
+  } catch(e) { console.error(e); }
 });
 
 module.exports = { bot };

@@ -221,6 +221,21 @@ async function transcribeAudio(audioBuffer, mimeType) {
   }
 }
 
+/**
+ * Market Trends Analysis
+ */
+async function generateMarketTrends(jobCategoriesStr) {
+  const prompt = `Kama Data Analyst wa GigLink, chambua mwenendo (trends) wa soko kulingana na data za kazi zinazopostiwa hivi karibuni.
+Data ya Kazi (Categories): ${jobCategoriesStr}
+
+Tengeneza ripoti fupi kwa Kiswahili inayoonyesha:
+1. Ujuzi (Skills) unaopanda thamani kwa sasa.
+2. Ujuzi unaoshuka thamani au uhitaji wake kupungua.
+3. Ushauri mfupi kwa freelancers jinsi ya kujipanga.
+Format kwa Markdown vizuri.`;
+  return callGemini(prompt);
+}
+
 module.exports = { 
   improveGigDescription, 
   generateJobBrief,
@@ -232,5 +247,6 @@ module.exports = {
   summarizeJobChat,
   generateCareerPath,
   translateMessage,
-  transcribeAudio
+  transcribeAudio,
+  generateMarketTrends
 };

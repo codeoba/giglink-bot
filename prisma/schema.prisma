@@ -22,6 +22,11 @@ model User {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
+  referralCode     String?        @unique
+  referredById     Int?
+  streakDays       Int            @default(0)
+  lastActiveAt     DateTime?
+
   jobsPosted       Job[]          @relation("ClientJobs")
   gigs             Gig[]
   disputes         Dispute[]
@@ -37,6 +42,8 @@ model User {
   wallets          Wallet[]
   retainersClient  RetainerContract[] @relation("ClientRetainers")
   retainersFree    RetainerContract[] @relation("FreelancerRetainers")
+  referralRewardsGiven   ReferralReward[] @relation("ReferralRewardGiven")
+  referralRewardsReceived ReferralReward[] @relation("ReferralRewardReceived")
 }
 
 model Job {
@@ -280,4 +287,21 @@ enum RetainerStatus {
   ACTIVE
   CANCELLED
   PAUSED
+}
+
+model ReferralReward {
+  id              Int       @id @default(autoincrement())
+  amount          Float     @default(5000)
+  status          RewardStatus @default(PENDING)
+  referrerId      Int
+  referrer        User      @relation("ReferralRewardGiven", fields: [referrerId], references: [id])
+  referredUserId  Int
+  referredUser    User      @relation("ReferralRewardReceived", fields: [referredUserId], references: [id])
+  createdAt       DateTime  @default(now())
+}
+
+enum RewardStatus {
+  PENDING
+  PAID
+  CANCELLED
 }
