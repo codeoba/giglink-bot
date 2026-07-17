@@ -170,6 +170,57 @@ Format jibu kwa Markdown fupi na inayoeleweka.`;
   return callGemini(prompt);
 }
 
+/**
+ * Career Path Generator
+ */
+async function generateCareerPath(level, trustScore, totalJobs, skills) {
+  const prompt = `Wewe ni Mshauri wa Kazi wa GigLink. 
+Huyu ni freelancer wetu:
+Level: ${level}
+Trust Score: ${trustScore}/100
+Kazi zilizokamilika: ${totalJobs}
+Ujuzi (Skills): ${skills || 'Haijathibitishwa'}
+
+Tengeneza "Career Roadmap" inayoonyesha:
+1. Uko wapi sasa (Tathmini fupi)
+2. Hatua mbili muhimu ili kupanda daraja (Mfano, kufanya mitihani ya AI, kupata reviews nzuri, au kuongeza kazi)
+Jibu kwa Kiswahili kinachovutia (Markdown). Usizidi maneno 150.`;
+  return callGemini(prompt);
+}
+
+/**
+ * Message Translation
+ */
+async function translateMessage(text, targetLang) {
+  const prompt = `Tafsiri ujumbe huu kwenda lugha ya ${targetLang}. Usiongeze maneno yako. 
+Ujumbe: "${text}"`;
+  return callGemini(prompt);
+}
+
+/**
+ * Transcribe and Structure Voice Note
+ */
+async function transcribeAudio(audioBuffer, mimeType) {
+  if (!genAI) return null;
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const prompt = "Sikiliza sauti hii (ambayo ni mteja anaelezea kazi anayotaka ifanywe). Andika tangazo la kazi kamili lenye 'Kichwa cha Kazi', 'Maelezo', na 'Bajeti' (kama imetajwa). Jibu kwa Kiswahili (Markdown format).";
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          data: audioBuffer.toString("base64"),
+          mimeType: mimeType
+        }
+      }
+    ]);
+    return result.response.text();
+  } catch(e) {
+    console.error('[AI] Audio error:', e.message);
+    return null;
+  }
+}
+
 module.exports = { 
   improveGigDescription, 
   generateJobBrief,
@@ -178,5 +229,8 @@ module.exports = {
   generateInterviewQuestion,
   evaluateInterview,
   calculatePredictiveScore,
-  summarizeJobChat
+  summarizeJobChat,
+  generateCareerPath,
+  translateMessage,
+  transcribeAudio
 };

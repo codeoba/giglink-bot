@@ -650,6 +650,67 @@ bot.action('ai_job', async (ctx) => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// VOICE HANDLER — VOICE-BASED JOB POSTING
+// ═════════════════════════════════════════════════════════════════════════════
+bot.on('voice', async (ctx) => {
+  try {
+    const s = ctx.session || {};
+    // Pata file link kutoka Telegram
+    const fileLink = await ctx.telegram.getFileLink(ctx.message.voice.file_id);
+    
+    await ctx.reply('🎙️ *Sauti Imepokelewa!*\nInatumia AI kusikiliza na kutengeneza Tangazo la Kazi... Subiri kidogo.', { parse_mode: 'Markdown' });
+    
+    // Download sauti ukitumia axios
+    const axios = require('axios');
+    const response = await axios({ url: fileLink.href, responseType: 'arraybuffer' });
+    const audioBuffer = Buffer.from(response.data, 'binary');
+    
+    const { transcribeAudio } = require('./helpers/ai');
+    const jobPost = await transcribeAudio(audioBuffer, 'audio/ogg');
+    
+    if (!jobPost) return ctx.reply('❌ AI imeshindwa kuelewa sauti yako. Jaribu tena au andika kwa maandishi.');
+    
+    // Hifadhi kwenye session na ruhusu client athibitishe
+    ctx.session = { action: 'confirming_voice_job', jobDetails: jobPost };
+    await ctx.reply(`✨ *Hili ndilo Tangazo Lako la Kazi (Kutoka kwenye Sauti):*\n\n${jobPost}\n\nJe, unataka kuliposti moja kwa moja?`, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [Markup.button.callback('✅ Ndiyo, Posti Kazi Hii', 'post_voice_job')],
+          [Markup.button.callback('❌ Hapana, Futa', 'cancel_wizard')]
+        ]
+      }
+    });
+  } catch(e) {
+    console.error(e);
+    await ctx.reply('Kuna shida kupokea sauti.');
+  }
+});
+
+bot.action('post_voice_job', async (ctx) => {
+  await ctx.answerCbQuery('Inaposti kazi...');
+  const s = ctx.session || {};
+  if (s.action !== 'confirming_voice_job' || !s.jobDetails) return ctx.reply('Muda umeisha. Jaribu tena.');
+  
+  try {
+    const user = await getOrCreateUser(ctx, 'CLIENT');
+    // Extract title randomly or just use generic for MVP
+    const job = await prisma.job.create({
+      data: {
+        title: "Kazi Kutoka Kwenye Sauti (AI Generated)",
+        description: s.jobDetails,
+        category: 'General',
+        skills: 'Voice, AI',
+        budget: 0, // Need manual update later
+        clientId: user.id
+      }
+    });
+    ctx.session = null;
+    await ctx.editMessageText(`✅ *Kazi Imepostiwa Kikamilifu!*\n\nUnaweza kuiangalia kwenye /start -> Kazi Zangu.\n\n_Dokezo: Unaweza kuhariri bajeti baadaye._`, { parse_mode: 'Markdown' });
+  } catch(e) { console.error(e); }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // TEXT HANDLER — FULL STATE MACHINE
 // ═════════════════════════════════════════════════════════════════════════════
 bot.on('text', async (ctx) => {
@@ -786,9 +847,21 @@ bot.on('text', async (ctx) => {
       if (!receiver) return ctx.reply('Mtumiaji huyu hatapatikani.');
       await prisma.message.create({ data: { content: text, senderId: sender.id, receiverId: receiver.id, jobId: s.jobId || null } });
       const job = s.jobId ? await prisma.job.findUnique({ where: { id: s.jobId } }) : null;
-      await notify(bot, receiver.telegramId,
-        `💬 *Ujumbe kutoka ${sender.firstName || 'Mtumiaji'}*${job ? ` _(${job.title})_` : ''}:\n\n"${text}"\n\n_Jibu: /start → Kazi Zangu_`, 'MESSAGE'
-      );
+      
+      const msgText = `💬 *Ujumbe kutoka ${sender.firstName || 'Mtumiaji'}*${job ? ` _(${job.title})_` : ''}:\n\n"${text}"`;
+      // Tuma ujumbe kwa receiver pamoja na kitufe cha kutafsiri
+      await bot.telegram.sendMessage(receiver.telegramId, msgText, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [Markup.button.callback('A/文 Tafsiri (Translate)', `tr_msg`)],
+            [Markup.button.callback('Jibu (Reply)', `msg_${sender.id}_${s.jobId||0}`)]
+          ]
+        }
+      });
+      
+      await prisma.notification.create({ data: { userId: receiver.id, content: msgText, type: 'MESSAGE' } });
+      
       await ctx.reply('✅ Ujumbe umepelekwa!', { reply_markup: { inline_keyboard: [
         [{ text: '💬 Tuma ujumbe mwingine', callback_data: `msg_${s.receiverId}_${s.jobId||0}` }],
         [{ text: '✅ Maliza',               callback_data: 'cancel_wizard' }]
@@ -1147,6 +1220,40 @@ bot.command('retainer', async (ctx) => {
     await ctx.reply(`✅ *Retainer Contract Imesetiwa!*\n\nUtaanza kukatwa TZS ${amount.toLocaleString()} kila mwezi kiotomatiki kwa ajili ya @${fl.username}.\nMkataba umeanza rasmi leo!`, { parse_mode: 'Markdown' });
     await notify(bot, fl.telegramId, `🎉 *Mkataba Mpya wa Kila Mwezi (Retainer)!*\n\nMteja ${client.firstName} ameweka mkataba wa kukulipa TZS ${amount.toLocaleString()} kila mwezi. Kazi inaendelea!`, 'INFO');
   } catch(e) { console.error(e); }
+});
+
+// ── UX Commands: Career Path & Translate ──────────────────────────────────
+bot.command('career', async (ctx) => {
+  try {
+    const user = await getOrCreateUser(ctx);
+    // Count completed jobs
+    const completedJobs = await prisma.proposal.count({ where: { freelancerId: user.id, status: 'ACCEPTED', job: { status: 'COMPLETED' } } });
+    const badges = await prisma.skillBadge.findMany({ where: { userId: user.id } });
+    const skills = badges.map(b => b.skillName).join(', ');
+
+    await ctx.reply('📈 *Inachora Career Roadmap Yako...*\nSubiri kidogo AI ikusanye data zako.', { parse_mode: 'Markdown' });
+    
+    const { generateCareerPath } = require('./helpers/ai');
+    const roadmap = await generateCareerPath(user.level, user.trustScore, completedJobs, skills);
+    
+    await ctx.reply(`📈 *Career Path Yako (GigLink)*\n\n${roadmap}`, { parse_mode: 'Markdown' });
+  } catch (e) { console.error(e); }
+});
+
+bot.action('tr_msg', async (ctx) => {
+  await ctx.answerCbQuery('Inatafsiri... (Translating...)', { show_alert: false });
+  try {
+    const originalText = ctx.callbackQuery.message.text;
+    const { translateMessage } = require('./helpers/ai');
+    
+    // Extract actual message from the formatted text if possible, but passing whole text is fine for Gemini
+    const translated = await translateMessage(originalText, 'Kiingereza / Swahili (Lugha nyingine)');
+    
+    await ctx.reply(`🌍 *Tafsiri (Translation):*\n\n${translated}`, { 
+      parse_mode: 'Markdown',
+      reply_to_message_id: ctx.callbackQuery.message.message_id 
+    });
+  } catch (e) { console.error(e); }
 });
 
 module.exports = { bot };
