@@ -844,9 +844,32 @@ bot.on('text', async (ctx) => {
         if (accepted) {
           ctx.session = { action: 'reviewing', step: 'rating', jobId: s.jobId, revieweeId: accepted.freelancerId };
           await ctx.reply('⭐ Piga kura kwa Freelancer (1-5 nyota):', { reply_markup: { inline_keyboard: [[1,2,3,4,5].map(n => ({ text: '⭐'.repeat(n), callback_data: `sr_${n}` }))] } });
-          // Arifa Freelancer
+          
+          // Arifa Freelancer na Instant Payout logic
           const fl = await prisma.user.findUnique({ where: { id: accepted.freelancerId } });
-          if (fl) await notify(bot, fl.telegramId, `💰 *Malipo Yameingia Escrow!*\n\nKazi: *${job?.title}*\nKiasi chako: TZS ${freelancerAmount.toLocaleString()}\n\nAsante kwa kazi nzuri! 🙏`, 'PAYMENT');
+          if (fl) {
+            await notify(bot, fl.telegramId, `💰 *Malipo Yameingia Escrow!*\n\nKazi: *${job?.title}*\nKiasi chako: TZS ${freelancerAmount.toLocaleString()}\n\nAsante kwa kazi nzuri! 🙏`, 'PAYMENT');
+            
+            // Generate Invoice
+            const { generateInvoicePDF } = require('./helpers/invoices');
+            try {
+              const invResult = await generateInvoicePDF(job, client, fl, amount);
+              await prisma.invoice.create({ data: { invoiceNo: invResult.invoiceNo, pdfUrl: invResult.pdfPath, amount, taxAmount: invResult.taxAmount, jobId: s.jobId, status: 'PAID' } });
+              await ctx.replyWithDocument({ source: invResult.pdfPath }, { caption: '🧾 *Risiti ya Kielektroniki (E-Invoice)*\nHii hapa ni risiti yako rasmi inayofuata sheria za kodi kwa ajili ya kumbukumbu zako.', parse_mode: 'Markdown' });
+            } catch (e) { console.error('Invoice error', e); }
+
+            // Instant Payout Check
+            if (fl.trustScore > 85) {
+              await notify(bot, fl.telegramId, `⚡ *Instant Payout Eligibility!*\nKwa kuwa Trust Score yako ni kubwa (${fl.trustScore}), unaweza kutoa pesa zako sasa hivi bila kusubiri siku za clearance.\nTumia /withdraw kutoa.`, 'INFO');
+              // Update Wallet Balance
+              let wallet = await prisma.wallet.findFirst({ where: { userId: fl.id, currency: 'TZS' } });
+              if (!wallet) wallet = await prisma.wallet.create({ data: { userId: fl.id, currency: 'TZS', balance: 0 } });
+              await prisma.wallet.update({ where: { id: wallet.id }, data: { balance: wallet.balance + freelancerAmount } });
+              
+              // Mark payment EscrowStatus as RELEASED directly since we gave it to Wallet
+              await prisma.payment.update({ where: { jobId: s.jobId }, data: { escrowStatus: 'RELEASED' } });
+            }
+          }
         }
       } else {
         await ctx.reply('❌ Ombi la M-Pesa lilishindwa. Jaribu tena baadaye au wasiliana na msaada.');
@@ -1057,6 +1080,73 @@ bot.action(/^ai_sum_(\d+)$/, async (ctx) => {
     
     await ctx.reply(`📝 *AI Meeting Notes & Action Items*\n\n${summary}`, { parse_mode: 'Markdown' });
   } catch (e) { console.error(e); }
+});
+
+// ── FinTech Commands: Wallets & Withdrawals ──────────────────────────────
+bot.command('wallet', async (ctx) => {
+  try {
+    const user = await getOrCreateUser(ctx);
+    const wallets = await prisma.wallet.findMany({ where: { userId: user.id } });
+    if (!wallets.length) {
+      return ctx.reply('👝 *Pochi yako ni tupu.*\nHujapokea pesa zozote kwenye GigLink Wallet bado.', { parse_mode: 'Markdown' });
+    }
+    let msg = '👝 *Salio la GigLink Wallet Yako:*\n\n';
+    wallets.forEach(w => {
+      msg += `💰 ${w.currency}: ${w.balance.toLocaleString()}\n`;
+    });
+    msg += '\n_Kutoa pesa, tumia amri: /withdraw <KIASI>_';
+    await ctx.reply(msg, { parse_mode: 'Markdown' });
+  } catch (e) { console.error(e); }
+});
+
+bot.command('withdraw', async (ctx) => {
+  const parts = ctx.message.text.split(' ');
+  const amount = parseFloat(parts[1]);
+  if (!amount || isNaN(amount)) return ctx.reply('❌ Tumia: `/withdraw <Kiasi>`\nMfano: `/withdraw 15000`', { parse_mode: 'Markdown' });
+
+  try {
+    const user = await getOrCreateUser(ctx);
+    const wallet = await prisma.wallet.findFirst({ where: { userId: user.id, currency: 'TZS' } });
+    if (!wallet || wallet.balance < amount) {
+      return ctx.reply(`❌ Salio halitoshi kutoa TZS ${amount.toLocaleString()}`);
+    }
+
+    // Process payout (Simulation)
+    await prisma.wallet.update({ where: { id: wallet.id }, data: { balance: wallet.balance - amount } });
+    await ctx.reply(`✅ *Withdrawal Imefanikiwa!*\n\nKiasi: TZS ${amount.toLocaleString()}\nPesa itatumwa kwenye namba yako ya M-Pesa iliyosajiliwa muda si mrefu.`, { parse_mode: 'Markdown' });
+  } catch (e) { console.error(e); }
+});
+
+bot.command('retainer', async (ctx) => {
+  const parts = ctx.message.text.split(' ');
+  const freelancerUsername = parts[1];
+  const amount = parseFloat(parts[2]);
+  
+  if (!freelancerUsername || isNaN(amount)) {
+    return ctx.reply('❌ Tumia: `/retainer @username <Kiasi_Kila_Mwezi>`\nMfano: `/retainer @dev 500000`', { parse_mode: 'Markdown' });
+  }
+
+  try {
+    const client = await getOrCreateUser(ctx, 'CLIENT');
+    const fl = await prisma.user.findFirst({ where: { username: freelancerUsername.replace('@', '') } });
+    if (!fl) return ctx.reply('Freelancer huyo hajapatikana.');
+
+    const nextCharge = new Date();
+    nextCharge.setMonth(nextCharge.getMonth() + 1);
+
+    await prisma.retainerContract.create({
+      data: {
+        title: `Retainer na ${fl.firstName}`,
+        monthlyFee: amount,
+        nextChargeAt: nextCharge,
+        clientId: client.id,
+        freelancerId: fl.id
+      }
+    });
+
+    await ctx.reply(`✅ *Retainer Contract Imesetiwa!*\n\nUtaanza kukatwa TZS ${amount.toLocaleString()} kila mwezi kiotomatiki kwa ajili ya @${fl.username}.\nMkataba umeanza rasmi leo!`, { parse_mode: 'Markdown' });
+    await notify(bot, fl.telegramId, `🎉 *Mkataba Mpya wa Kila Mwezi (Retainer)!*\n\nMteja ${client.firstName} ameweka mkataba wa kukulipa TZS ${amount.toLocaleString()} kila mwezi. Kazi inaendelea!`, 'INFO');
+  } catch(e) { console.error(e); }
 });
 
 module.exports = { bot };
