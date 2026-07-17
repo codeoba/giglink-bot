@@ -153,6 +153,23 @@ Usiongeze maneno ya utangulizi.`;
   return callGemini(prompt);
 }
 
+/**
+ * AI Meeting Notes & Summarization
+ */
+async function summarizeJobChat(jobTitle, messages) {
+  const prompt = `Wewe ni Msaidizi wa Mradi (GigLink). 
+Mradi: "${jobTitle}"
+Hapa kuna historia ya mazungumzo kati ya Mteja na Freelancer:
+${messages.map(m => `[${m.role}] ${m.name}: ${m.content}`).join('\n')}
+
+Tengeneza muhtasari mzuri kwa Kiswahili ukigawanya:
+1. Mambo Makuu Yaliyokubaliwa (Dondoo)
+2. Action Items (Nani anafanya nini na lini)
+
+Format jibu kwa Markdown fupi na inayoeleweka.`;
+  return callGemini(prompt);
+}
+
 module.exports = { 
   improveGigDescription, 
   generateJobBrief,
@@ -160,5 +177,6 @@ module.exports = {
   evaluateSkillTest,
   generateInterviewQuestion,
   evaluateInterview,
-  calculatePredictiveScore
+  calculatePredictiveScore,
+  summarizeJobChat
 };
