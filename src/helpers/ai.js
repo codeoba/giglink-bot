@@ -111,7 +111,7 @@ async function generateInterviewQuestion(jobTitle, jobDescription, previousQAs =
   const prompt = `Wewe ni Mteja anayetafuta Freelancer kwa kazi ya: "${jobTitle}".
 Maelezo: "${jobDescription}".
 Haya ni mazungumzo yenu hadi sasa:
-${previousQAs.map(qa => \`Mteja: \${qa.q}\nFreelancer: \${qa.a}\`).join('\n')}
+${previousQAs.map(qa => `Mteja: ${qa.q}\nFreelancer: ${qa.a}`).join('\n')}
 
 Uliza swali MOJA muhimu na la kiufundi la kumuhoji huyu freelancer ili kujua kama ana uwezo wa kufanya hii kazi.
 Uliza kwa Kiswahili. Jibu lako liwe swali tu (hakuna maelezo mengine).`;
@@ -125,7 +125,7 @@ async function evaluateInterview(jobTitle, jobDescription, qaHistory) {
   const prompt = `Wewe ni Mshauri wa Ajira (GigLink). Mteja anatafuta mtu kwa kazi: "${jobTitle}".
 Maelezo: "${jobDescription}".
 Huu hapa ni muhtasari wa mahojiano kati ya Mteja (wewe) na Freelancer:
-${qaHistory.map(qa => \`Swali: \${qa.q}\nJibu: \${qa.a}\`).join('\n')}
+${qaHistory.map(qa => `Swali: ${qa.q}\nJibu: ${qa.a}`).join('\n')}
 
 Tathmini uwezo wa huyu Freelancer kwa kazi hii. Toa muhtasari (max maneno 100) na umpe asilimia (%).
 Format jibu:
