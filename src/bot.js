@@ -1174,7 +1174,10 @@ bot.command('wallet', async (ctx) => {
     });
     msg += '\n_Kutoa pesa, tumia amri: /withdraw <KIASI>_';
     await ctx.reply(msg, { parse_mode: 'Markdown' });
-  } catch (e) { console.error(e); }
+  } catch (e) { 
+    console.error(e); 
+    await ctx.reply(`❌ Kosa kwenye /wallet: ${e.message}`); 
+  }
 });
 
 bot.command('withdraw', async (ctx) => {
@@ -1192,7 +1195,10 @@ bot.command('withdraw', async (ctx) => {
     // Process payout (Simulation)
     await prisma.wallet.update({ where: { id: wallet.id }, data: { balance: wallet.balance - amount } });
     await ctx.reply(`✅ *Withdrawal Imefanikiwa!*\n\nKiasi: TZS ${amount.toLocaleString()}\nPesa itatumwa kwenye namba yako ya M-Pesa iliyosajiliwa muda si mrefu.`, { parse_mode: 'Markdown' });
-  } catch (e) { console.error(e); }
+  } catch (e) { 
+    console.error(e); 
+    await ctx.reply(`❌ Kosa kwenye /withdraw: ${e.message}`);
+  }
 });
 
 bot.command('retainer', async (ctx) => {
@@ -1242,7 +1248,10 @@ bot.command('career', async (ctx) => {
     const roadmap = await generateCareerPath(user.level, user.trustScore, completedJobs, skills);
     
     await ctx.reply(`📈 *Career Path Yako (GigLink)*\n\n${roadmap}`, { parse_mode: 'Markdown' });
-  } catch (e) { console.error(e); }
+  } catch (e) { 
+    console.error(e); 
+    await ctx.reply(`❌ Kosa kwenye /career: ${e.message}`);
+  }
 });
 
 bot.action('tr_msg', async (ctx) => {
