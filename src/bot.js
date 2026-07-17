@@ -717,10 +717,11 @@ bot.action('post_voice_job', async (ctx) => {
 // ═════════════════════════════════════════════════════════════════════════════
 // TEXT HANDLER — FULL STATE MACHINE
 // ═════════════════════════════════════════════════════════════════════════════
-bot.on('text', async (ctx) => {
+bot.on('text', async (ctx, next) => {
+  if (!ctx.message || !ctx.message.text) return next();
   const text = ctx.message.text.trim();
   const s    = ctx.session || {};
-  if (text.startsWith('/')) return;
+  if (text.startsWith('/')) return next();
 
   // ── CREATING GIG (7 hatua) ──────────────────────────────────────────────
   if (s.action === 'adding_task') {
