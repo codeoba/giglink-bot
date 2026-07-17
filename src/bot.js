@@ -34,6 +34,10 @@ bot.telegram.setMyCommands([
   { command: 'messages', description: '💬 Mazungumzo yako' },
   { command: 'history',  description: '📋 Historia ya kazi na malipo' },
   { command: 'top',      description: '🏆 Leaderboard — Freelancers bora 10' },
+  { command: 'wallet',   description: '👝 Angalia salio lako la GigLink' },
+  { command: 'withdraw', description: '💸 Toa pesa kwenda M-Pesa' },
+  { command: 'career',   description: '📈 Angalia ramani yako ya mafanikio (Career Path)' },
+  { command: 'retainer', description: '🔄 Weka mkataba wa malipo ya kila mwezi' },
   { command: 'help',     description: '❓ Msaada na maelekezo' }
 ]).catch(() => {});
 
