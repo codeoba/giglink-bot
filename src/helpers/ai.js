@@ -236,6 +236,35 @@ Format kwa Markdown vizuri.`;
   return callGemini(prompt);
 }
 
+/**
+ * Phase 8: Handover Assistant
+ */
+async function generateHandoverReport(job) {
+  const taskSummary = job.tasks.map(t => `- ${t.title} (${t.status})`).join('\n');
+  const chatSummary = job.messages.slice(-20).map(m => `${m.senderId}: ${m.content}`).join('\n');
+  
+  const prompt = `Wewe ni Msaidizi wa Miradi (GigLink). Mteja na Freelancer walikuwa wakifanya kazi ifuatayo lakini kumetokea dharura hivyo freelancer hawezi kuendelea.
+Jukumu lako ni kuandaa "Handover Document" ili Mteja aweze kumpa freelancer mwingine aendeleze bila kuanza upya.
+
+Kazi: ${job.title}
+Maelezo: ${job.description}
+
+Tasks Zilizokuwepo:
+${taskSummary || 'Hakuna tasks zilizowekwa.'}
+
+Mazungumzo ya Hivi Karibuni:
+${chatSummary || 'Hakuna mazungumzo.'}
+
+Andika Ripoti ya Makabidhiano (Handover) kwa Kiswahili chenye weledi yenye:
+1. Lengo la Mradi (Project Goal).
+2. Nini Kimeshafanyika (What's Done).
+3. Nini Kimebaki Kufanyika (Pending Work).
+4. Mambo ya Kuzingatia (Important Context from Chat).
+Format nzuri ya Markdown (Tumia bullet points na bold text).`;
+
+  return callGemini(prompt);
+}
+
 module.exports = { 
   improveGigDescription, 
   generateJobBrief,
@@ -248,5 +277,6 @@ module.exports = {
   generateCareerPath,
   translateMessage,
   transcribeAudio,
-  generateMarketTrends
+  generateMarketTrends,
+  generateHandoverReport
 };

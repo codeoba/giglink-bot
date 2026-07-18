@@ -845,6 +845,12 @@ bot.action(/^save_crm_(\d+)$/, async (ctx) => {
 bot.action(/^invite_crm_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery('');
   const flId = parseInt(ctx.match[1]);
+  
+  const fl = await prisma.user.findUnique({ where: { id: flId } });
+  if (fl && fl.isVacationMode) {
+    return ctx.reply('🌴 Huyu Freelancer yupo mapumzikoni (Vacation Mode) kwa sasa na hawezi kupokea mialiko mipya.');
+  }
+  
   ctx.session = { action: 'messaging', step: 'send', receiverId: flId };
   await ctx.reply('💬 *Tuma Mwaliko wa Kazi (Talent CRM)*\n\nAndika ujumbe wako kwa huyu Freelancer kumpa ofa ya kazi mpya. Atapokea ujumbe wako moja kwa moja:', cancelExtra({ parse_mode: 'Markdown' }));
 });
@@ -1677,12 +1683,99 @@ bot.command('talents', async (ctx) => {
     
     if (favorites.length === 0) return ctx.reply('⭐ Huna Freelancer yeyote uliyemhifadhi kwenye CRM yako.\n\nIli kuhifadhi, tumia kitufe cha "⭐ Hifadhi" unapoona wasifu wao.');
     
-    const inline_keyboard = favorites.map(f => ([Markup.button.callback(`📩 Alika: ${f.freelancer.firstName}`, `invite_crm_${f.freelancerId}`)]));
+    const inline_keyboard = favorites.map(f => {
+      const isVacation = f.freelancer.isVacationMode;
+      const label = `📩 Alika: ${f.freelancer.firstName} ${isVacation ? '🌴' : ''}`;
+      // If on vacation, use a dummy action or just still use invite_crm but the handler will block it.
+      return [Markup.button.callback(label, `invite_crm_${f.freelancerId}`)];
+    });
+    
     await ctx.reply('⭐ *Talent CRM Yako (Wanaopendwa)*\n\nHawa ni freelancers wako wa uhakika. Bofya kualika kwa mradi mpya:', {
       parse_mode: 'Markdown',
       reply_markup: { inline_keyboard }
     });
   } catch(e) { console.error(e); }
+});
+
+// ── Phase 8: Vacation Mode & Work Continuity ───────────────────────────────
+
+bot.command('vacation', async (ctx) => {
+  try {
+    const user = await getOrCreateUser(ctx);
+    const newState = !user.isVacationMode;
+    
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { isVacationMode: newState }
+    });
+    
+    if (newState) {
+      await ctx.reply('🌴 *Vacation Mode IMEWASHWA!*\n\nProfaili yako sasa haitapokea mialiko mipya ya moja kwa moja (Talent CRM). Pumzika vizuri!', { parse_mode: 'Markdown' });
+      
+      // Notify clients with currently open jobs assigned to this freelancer
+      const activeJobs = await prisma.job.findMany({
+        where: { status: 'OPEN' },
+        include: { proposals: true, client: true }
+      });
+      
+      const { notify } = require('./helpers/notifications');
+      
+      for (const job of activeJobs) {
+        const acceptedProp = job.proposals.find(p => p.freelancerId === user.id && p.status === 'ACCEPTED');
+        if (acceptedProp) {
+          await notify(bot, job.client.telegramId, `🌴 *Taarifa:* Freelancer wako wa mradi wa "${job.title}" (${user.firstName}) amewasha Vacation Mode na anaweza kuwa hapatikani kwa sasa.`, 'SYSTEM');
+        }
+      }
+    } else {
+      await ctx.reply('💼 *Vacation Mode IMEZIMWA!*\n\nKaribu tena kazini! Upo hewani kupokea kazi mpya sasa.', { parse_mode: 'Markdown' });
+    }
+  } catch(e) {
+    console.error(e);
+    await ctx.reply(`❌ Kosa kwenye /vacation: ${e.message}`);
+  }
+});
+
+bot.command('handover', async (ctx) => {
+  try {
+    const parts = ctx.message.text.split(' ');
+    if (parts.length !== 2) {
+      return ctx.reply('❌ Tumia: /handover [ID_ya_Kazi]\nMfano: /handover 15');
+    }
+    
+    const jobId = parseInt(parts[1]);
+    if (isNaN(jobId)) return ctx.reply('❌ ID inapaswa kuwa namba.');
+    
+    const user = await getOrCreateUser(ctx);
+    
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        tasks: true,
+        messages: true,
+        proposals: { where: { status: 'ACCEPTED' }, include: { freelancer: true } }
+      }
+    });
+    
+    if (!job) return ctx.reply('❌ Kazi haipatikani.');
+    
+    const isClient = job.clientId === user.id;
+    const isFreelancer = job.proposals.some(p => p.freelancerId === user.id);
+    
+    if (!isClient && !isFreelancer) {
+      return ctx.reply('❌ Huwezi kuomba handover ya kazi isiyokuhusu.');
+    }
+    
+    await ctx.reply('🤖 *Inaandaa Ripoti ya Makabidhiano (Handover)...*\nTafadhali subiri kidogo AI inasoma data zote.', { parse_mode: 'Markdown' });
+    
+    const { generateHandoverReport } = require('./helpers/ai');
+    const report = await generateHandoverReport(job);
+    
+    await ctx.reply(`🤝 *Ripoti ya Makabidhiano (Handover Document)*\n\n${report}`, { parse_mode: 'Markdown' });
+    
+  } catch(e) {
+    console.error(e);
+    await ctx.reply(`❌ Kosa kwenye /handover: ${e.message}`);
+  }
 });
 
 module.exports = { bot };
