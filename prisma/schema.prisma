@@ -44,6 +44,11 @@ model User {
   retainersFree    RetainerContract[] @relation("FreelancerRetainers")
   referralRewardsGiven   ReferralReward[] @relation("ReferralRewardGiven")
   referralRewardsReceived ReferralReward[] @relation("ReferralRewardReceived")
+  digitalProductsSold    DigitalProduct[] @relation("DigitalProductsSold")
+  digitalPurchases       DigitalPurchase[] @relation("DigitalPurchases")
+  companyPage            CompanyPage?     @relation("CompanyPageOwner")
+  favoriteFreelancers    FavoriteFreelancer[] @relation("ClientFavorites")
+  favoritedBy            FavoriteFreelancer[] @relation("FavoritedBy")
 }
 
 model Job {
@@ -307,7 +312,61 @@ enum RewardStatus {
 }
 
 model SystemSettings {
-  id                 String   @id @default("default")
-  referralPercentage Float    @default(5.0)
-  updatedAt          DateTime @updatedAt
+  id                    String   @id @default("default")
+  referralPercentage    Float    @default(5.0)
+  marketplaceCommission Float    @default(10.0)
+  updatedAt             DateTime @updatedAt
+}
+
+// ── Phase 7: Business Growth Tools ─────────────────────────────────────────
+
+model DigitalProduct {
+  id           Int      @id @default(autoincrement())
+  title        String
+  description  String   @db.Text
+  type         ProductType
+  price        Float
+  fileUrl      String   // URL ya resource au Google Drive link
+  sellerId     Int
+  seller       User     @relation("DigitalProductsSold", fields: [sellerId], references: [id])
+  purchases    DigitalPurchase[]
+  createdAt    DateTime @default(now())
+}
+
+model DigitalPurchase {
+  id           Int      @id @default(autoincrement())
+  productId    Int
+  product      DigitalProduct @relation(fields: [productId], references: [id])
+  buyerId      Int
+  buyer        User     @relation("DigitalPurchases", fields: [buyerId], references: [id])
+  amount       Float
+  createdAt    DateTime @default(now())
+}
+
+enum ProductType {
+  COURSE
+  TEMPLATE
+  SNIPPET
+}
+
+model CompanyPage {
+  id           Int      @id @default(autoincrement())
+  name         String
+  description  String   @db.Text
+  website      String?
+  industry     String?
+  ownerId      Int      @unique
+  owner        User     @relation("CompanyPageOwner", fields: [ownerId], references: [id])
+  createdAt    DateTime @default(now())
+}
+
+model FavoriteFreelancer {
+  id           Int      @id @default(autoincrement())
+  clientId     Int
+  client       User     @relation("ClientFavorites", fields: [clientId], references: [id])
+  freelancerId Int
+  freelancer   User     @relation("FavoritedBy", fields: [freelancerId], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@unique([clientId, freelancerId])
 }

@@ -496,10 +496,23 @@ bot.action(/^vj_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery('');
   const jobId = parseInt(ctx.match[1]);
   try {
-    const job = await prisma.job.findUnique({ where: { id: jobId }, include: { client: true, _count: { select: { proposals: true } } } });
+    const job = await prisma.job.findUnique({ 
+      where: { id: jobId }, 
+      include: { 
+        client: { include: { companyPage: true } }, 
+        _count: { select: { proposals: true } } 
+      } 
+    });
     if (!job) return ctx.reply('Kazi haipatikani tena.');
     const dl  = job.deadline ? new Date(job.deadline).toLocaleDateString('sw-TZ') : 'Haina mwisho';
-    const msg = `💼 *${job.title}*\n\n📋 *Maelezo:* ${job.description || 'Haijawekwa'}\n🏷️ *Kategoria:* ${job.category}\n🛠️ *Skills:* ${job.skills || 'Zote'}\n💰 *Bajeti:* TZS ${job.budget.toLocaleString()}\n📅 *Mwisho:* ${dl}\n📬 *Maombi:* ${job._count.proposals}`;
+    
+    let compInfo = '';
+    if (job.client && job.client.companyPage) {
+      const p = job.client.companyPage;
+      compInfo = `\n\n🏢 *Kuhusu Mteja (Employer Branding):*\n*Kampuni:* ${p.name}\n*Sekta:* ${p.industry}\n*Website:* ${p.website || 'N/A'}\n_${p.description}_`;
+    }
+    
+    const msg = `💼 *${job.title}*\n\n📋 *Maelezo:* ${job.description || 'Haijawekwa'}\n🏷️ *Kategoria:* ${job.category}\n🛠️ *Skills:* ${job.skills || 'Zote'}\n💰 *Bajeti:* TZS ${job.budget.toLocaleString()}\n📅 *Mwisho:* ${dl}\n📬 *Maombi:* ${job._count.proposals}${compInfo}`;
     await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
       [Markup.button.callback('📩 Tuma Ombi (Apply)', `spr_${jobId}`)],
       [Markup.button.callback('🔙 Rudi', 'browse_jobs')]
@@ -552,9 +565,12 @@ bot.action(/^vp_(\d+)$/, async (ctx) => {
       ? [
           [Markup.button.callback('✅ Kubali', `acc_${pid}`), Markup.button.callback('❌ Kataa', `rej_${pid}`)], 
           [Markup.button.callback('🤖 Fanya AI Interview', `ai_int_${pid}`)],
-          [Markup.button.callback('🔙 Rudi', `vpr_${p.jobId}`)]
+          [Markup.button.callback('⭐ Hifadhi CRM', `save_crm_${p.freelancerId}`), Markup.button.callback('🔙 Rudi', `vpr_${p.jobId}`)]
         ]
-      : [[Markup.button.callback('🔙 Rudi', `vpr_${p.jobId}`)]];
+      : [
+          [Markup.button.callback('⭐ Hifadhi CRM', `save_crm_${p.freelancerId}`)],
+          [Markup.button.callback('🔙 Rudi', `vpr_${p.jobId}`)]
+        ];
     await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: btns } });
   } catch (err) { console.error(err); await ctx.reply('Tatizo limetokea.'); }
 });
@@ -764,6 +780,75 @@ bot.action('post_voice_job', async (ctx) => {
   } catch(e) { console.error(e); }
 });
 
+// ── Phase 7 Actions (Marketplace & CRM) ───────────────────────────────────
+bot.action(/^buy_prod_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('');
+  const prodId = parseInt(ctx.match[1]);
+  try {
+    const prod = await prisma.digitalProduct.findUnique({ where: { id: prodId } });
+    if (!prod) return ctx.reply('Bidhaa haipatikani.');
+    
+    const user = await getOrCreateUser(ctx);
+    if (user.id === prod.sellerId) return ctx.reply('❌ Huwezi kujinunulia bidhaa yako mwenyewe.');
+    
+    let wallet = await prisma.wallet.findFirst({ where: { userId: user.id, currency: 'TZS' } });
+    if (!wallet || wallet.balance < prod.price) {
+      return ctx.reply(`❌ Salio lako halitoshi. Bidhaa hii inauzwa TZS ${prod.price.toLocaleString()}.\n\nTafadhali weka pesa kwenye /wallet yako kwanza.`);
+    }
+    
+    // Deduct buyer
+    await prisma.wallet.update({ where: { id: wallet.id }, data: { balance: wallet.balance - prod.price } });
+    
+    // Calculate Commission
+    let settings = await prisma.systemSettings.findUnique({ where: { id: 'default' } });
+    if (!settings) settings = await prisma.systemSettings.create({ data: { id: 'default', marketplaceCommission: 10.0 } });
+    
+    const comm = (settings.marketplaceCommission / 100) * prod.price;
+    const sellerEarns = prod.price - comm;
+    
+    // Pay Seller
+    let sellerWallet = await prisma.wallet.findFirst({ where: { userId: prod.sellerId, currency: 'TZS' } });
+    if (!sellerWallet) sellerWallet = await prisma.wallet.create({ data: { userId: prod.sellerId, currency: 'TZS', balance: 0 } });
+    await prisma.wallet.update({ where: { id: sellerWallet.id }, data: { balance: sellerWallet.balance + sellerEarns } });
+    
+    // Record Purchase
+    await prisma.digitalPurchase.create({ data: { productId: prod.id, buyerId: user.id, amount: prod.price } });
+    
+    // Deliver Asset
+    await ctx.reply(`✅ *Umefanikiwa Kununua!*\n\n📌 *${prod.title}*\n\nHii hapa Link ya kupakua/kuangalia bidhaa yako:\n🔗 ${prod.fileUrl}\n\n_Asante kwa kutumia GigLink Marketplace!_`, { parse_mode: 'Markdown' });
+    
+    // Notify Seller
+    const seller = await prisma.user.findUnique({ where: { id: prod.sellerId } });
+    if (seller) {
+      const { notify } = require('./helpers/notifications');
+      await notify(bot, seller.telegramId, `💰 *Mauzo Mapya Sokoni!*\n\nMtu amenunua bidhaa yako ya "${prod.title}". Umepokea TZS ${sellerEarns.toLocaleString()} kwenye Wallet yako.`, 'PAYMENT');
+    }
+  } catch(e) { console.error(e); ctx.reply('Hitilafu.'); }
+});
+
+bot.action(/^save_crm_(\d+)$/, async (ctx) => {
+  const flId = parseInt(ctx.match[1]);
+  try {
+    const client = await getOrCreateUser(ctx, 'CLIENT');
+    if (client.id === flId) return ctx.answerCbQuery('Huwezi kujihifadhi mwenyewe.', { show_alert: true });
+    
+    await prisma.favoriteFreelancer.upsert({
+      where: { clientId_freelancerId: { clientId: client.id, freelancerId: flId } },
+      update: {},
+      create: { clientId: client.id, freelancerId: flId }
+    });
+    
+    await ctx.answerCbQuery('⭐ Imehifadhiwa kwenye CRM yako!', { show_alert: true });
+  } catch(e) { console.error(e); ctx.answerCbQuery('Hitilafu.'); }
+});
+
+bot.action(/^invite_crm_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('');
+  const flId = parseInt(ctx.match[1]);
+  ctx.session = { action: 'messaging', step: 'send', receiverId: flId };
+  await ctx.reply('💬 *Tuma Mwaliko wa Kazi (Talent CRM)*\n\nAndika ujumbe wako kwa huyu Freelancer kumpa ofa ya kazi mpya. Atapokea ujumbe wako moja kwa moja:', cancelExtra({ parse_mode: 'Markdown' }));
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // TEXT HANDLER — FULL STATE MACHINE
 // ═════════════════════════════════════════════════════════════════════════════
@@ -825,6 +910,69 @@ bot.on('text', async (ctx, next) => {
         }});
         ctx.session = null;
         await ctx.replyWithMarkdown(`🎉 *Gig imehifadhiwa!*\n\n📌 *${gig.title}*\n🏷️ ${gig.category} | 🛠️ ${gig.skills}\n💰 TZS ${gig.price.toLocaleString()} | ⏱ ${gig.deliveryTime}\n\n_ID: ${gig.id}_ — Tumia /start au /gigs kuendelea.`);
+      } catch (err) { console.error(err); await ctx.reply('Hitilafu imetokea. Jaribu tena.'); }
+    }
+  }
+
+  // ── SELLING DIGITAL PRODUCT (5 hatua) ──────────────────────────────────
+  if (s.action === 'selling_product') {
+    if (s.step === 'title') {
+      s.prodTitle = text; s.step = 'description';
+      return ctx.reply('*Hatua 2 ya 5:* Maelezo ya bidhaa\n\nElezea bidhaa yako (mfano: Template ya Figma kwa e-commerce):', cancelExtra({ parse_mode: 'Markdown' }));
+    }
+    if (s.step === 'description') {
+      s.prodDescription = text; s.step = 'type';
+      return ctx.reply('*Hatua 3 ya 5:* Aina ya Bidhaa\n\nAndika moja wapo: `COURSE`, `TEMPLATE`, au `SNIPPET`', cancelExtra({ parse_mode: 'Markdown' }));
+    }
+    if (s.step === 'type') {
+      const type = text.toUpperCase();
+      if (!['COURSE', 'TEMPLATE', 'SNIPPET'].includes(type)) return ctx.reply('❌ Tafadhali andika COURSE, TEMPLATE, au SNIPPET.', cancelExtra({ parse_mode: 'Markdown' }));
+      s.prodType = type; s.step = 'price';
+      return ctx.reply('*Hatua 4 ya 5:* Bei ya Bidhaa (TZS)\n\nIngiza *namba tu*. _Mfano: 15000_', cancelExtra({ parse_mode: 'Markdown' }));
+    }
+    if (s.step === 'price') {
+      const price = parseFloat(text);
+      if (isNaN(price)) return ctx.reply('❌ Ingiza namba tu. _Mfano: 15000_', cancelExtra({ parse_mode: 'Markdown' }));
+      s.prodPrice = price; s.step = 'fileUrl';
+      return ctx.reply('*Hatua 5 ya 5:* Link ya Kupakua (Google Drive, n.k.)\n\nHii link itaonekana kwa mnunuzi tu akishalipa.', cancelExtra({ parse_mode: 'Markdown' }));
+    }
+    if (s.step === 'fileUrl') {
+      try {
+        const user = await getOrCreateUser(ctx, 'FREELANCER');
+        const prod = await prisma.digitalProduct.create({ data: {
+          title: s.prodTitle, description: s.prodDescription, type: s.prodType,
+          price: s.prodPrice, fileUrl: text, sellerId: user.id
+        }});
+        ctx.session = null;
+        await ctx.replyWithMarkdown(`🎉 *Bidhaa Yako Iko Sokoni!*\n\n📌 *${prod.title}* (${prod.type})\n💰 TZS ${prod.price.toLocaleString()}\n\n_Watumiaji sasa wanaweza kuinunua kupitia /marketplace_`);
+      } catch (err) { console.error(err); await ctx.reply('Hitilafu imetokea. Jaribu tena.'); }
+    }
+  }
+
+  // ── CREATING COMPANY PAGE (4 hatua) ──────────────────────────────────
+  if (s.action === 'creating_company') {
+    if (s.step === 'name') {
+      s.compName = text; s.step = 'industry';
+      return ctx.reply('*Hatua 2 ya 4:* Sekta/Industry\n\n_Mfano: Technology, Real Estate, E-Commerce_', cancelExtra({ parse_mode: 'Markdown' }));
+    }
+    if (s.step === 'industry') {
+      s.compIndustry = text; s.step = 'website';
+      return ctx.reply('*Hatua 3 ya 4:* Website yako (au andika `SKIP` kama huna):', cancelExtra({ parse_mode: 'Markdown' }));
+    }
+    if (s.step === 'website') {
+      s.compWebsite = text.toUpperCase() === 'SKIP' ? null : text; s.step = 'description';
+      return ctx.reply('*Hatua 4 ya 4:* Maelezo ya Kampuni\n\nElezea kampuni yenu inafanya nini na kwanini freelancers wafanye kazi nanyi:', cancelExtra({ parse_mode: 'Markdown' }));
+    }
+    if (s.step === 'description') {
+      try {
+        const user = await getOrCreateUser(ctx, 'CLIENT');
+        const page = await prisma.companyPage.upsert({
+          where: { ownerId: user.id },
+          update: { name: s.compName, industry: s.compIndustry, website: s.compWebsite, description: text },
+          create: { name: s.compName, industry: s.compIndustry, website: s.compWebsite, description: text, ownerId: user.id }
+        });
+        ctx.session = null;
+        await ctx.replyWithMarkdown(`✅ *Ukurasa wa Kampuni Umeundwa!*\n\n🏢 *${page.name}*\n🌐 ${page.website || 'N/A'}\n\n_Freelancers wataona taarifa hizi unapopost kazi mpya._`);
       } catch (err) { console.error(err); await ctx.reply('Hitilafu imetokea. Jaribu tena.'); }
     }
   }
@@ -1484,6 +1632,57 @@ bot.command('set_ref_percent', async (ctx) => {
     console.error(e);
     await ctx.reply(`❌ Kosa kwenye /set_ref_percent: ${e.message}`);
   }
+});
+
+// ── Phase 7: Business Growth Tools ─────────────────────────────────────────
+
+bot.command('marketplace', async (ctx) => {
+  try {
+    const products = await prisma.digitalProduct.findMany({ take: 10, orderBy: { createdAt: 'desc' } });
+    if (products.length === 0) return ctx.reply('Soko lipo tupu kwa sasa. Kuwa wa kwanza kuuza bidhaa! Tumia /sell_product');
+    
+    const inline_keyboard = products.map(p => ([Markup.button.callback(`${p.title} (TZS ${p.price})`, `buy_prod_${p.id}`)]));
+    await ctx.reply('🛒 *Soko la Kidijitali (Marketplace)*\n\nJifunze au pata zana mpya kutoka kwa wataalam:', {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard }
+    });
+  } catch(e) { console.error(e); }
+});
+
+bot.command('sell_product', async (ctx) => {
+  ctx.session = { action: 'selling_product', step: 'title' };
+  await ctx.reply('🛒 *Uza Bidhaa ya Kidijitali*\n\nHatua 1 ya 5: Andika jina la bidhaa yako (mf. Kozi ya React, Figma UI Kit):', cancelExtra({ parse_mode: 'Markdown' }));
+});
+
+bot.command('my_company', async (ctx) => {
+  const user = await getOrCreateUser(ctx, 'CLIENT');
+  const page = await prisma.companyPage.findUnique({ where: { ownerId: user.id } });
+  if (page) {
+    await ctx.replyWithMarkdown(`🏢 *Ukurasa Wako wa Kampuni*\n\nJina: ${page.name}\nSekta: ${page.industry}\nWebsite: ${page.website || 'N/A'}\nMaelezo: ${page.description}\n\n_Ukitaka kubadilisha, andika /edit_company_`);
+  } else {
+    ctx.session = { action: 'creating_company', step: 'name' };
+    await ctx.reply('🏢 *Tengeneza Ukurasa wa Kampuni*\n\nUkurasa huu utaambatanishwa na kazi unazopost ili kuvutia freelancers wazuri.\n\nHatua 1 ya 4: Jina la Kampuni yenu ni nani?', cancelExtra({ parse_mode: 'Markdown' }));
+  }
+});
+
+bot.command('edit_company', async (ctx) => {
+  ctx.session = { action: 'creating_company', step: 'name' };
+  await ctx.reply('🏢 *Hariri Ukurasa wa Kampuni*\n\nHatua 1 ya 4: Jina la Kampuni yenu ni nani?', cancelExtra({ parse_mode: 'Markdown' }));
+});
+
+bot.command('talents', async (ctx) => {
+  try {
+    const user = await getOrCreateUser(ctx, 'CLIENT');
+    const favorites = await prisma.favoriteFreelancer.findMany({ where: { clientId: user.id }, include: { freelancer: true } });
+    
+    if (favorites.length === 0) return ctx.reply('⭐ Huna Freelancer yeyote uliyemhifadhi kwenye CRM yako.\n\nIli kuhifadhi, tumia kitufe cha "⭐ Hifadhi" unapoona wasifu wao.');
+    
+    const inline_keyboard = favorites.map(f => ([Markup.button.callback(`📩 Alika: ${f.freelancer.firstName}`, `invite_crm_${f.freelancerId}`)]));
+    await ctx.reply('⭐ *Talent CRM Yako (Wanaopendwa)*\n\nHawa ni freelancers wako wa uhakika. Bofya kualika kwa mradi mpya:', {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard }
+    });
+  } catch(e) { console.error(e); }
 });
 
 module.exports = { bot };
