@@ -2053,7 +2053,14 @@ bot.command('dashboard', async (ctx) => {
     msg += `🔄 Wateja Wanaorudi: *${returnClients.toFixed(1)}%*\n`;
     msg += `🔥 Streak Yako: *Siku ${user.streakDays}*\n`;
 
-    await ctx.reply(msg, { parse_mode: 'Markdown' });
+    const appUrl = process.env.WEBHOOK_URL ? `${process.env.WEBHOOK_URL}/dashboard?tgId=${user.telegramId}` : `https://your-domain.com/dashboard?tgId=${user.telegramId}`;
+
+    await ctx.reply(msg, { 
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.webApp('🌐 Fungua Dashboard Kamili (Mini App)', appUrl)]
+      ])
+    });
   } catch (e) { 
     console.error(e); 
     await ctx.reply(`❌ Kosa kwenye /dashboard: ${e.message}`);
