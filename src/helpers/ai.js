@@ -298,6 +298,28 @@ Jibu na:
   return callGemini(prompt);
 }
 
+/**
+ * Phase 11: Robo-Judge (Dispute Resolution)
+ */
+async function generateDisputeResolution(jobTitle, jobDescription, userReason, chatSummary) {
+  const prompt = `Wewe ni Robo-Judge wa GigLink (Msuluhishi wa Migogoro). 
+Kuna mgogoro umeripotiwa kuhusu kazi hii:
+Kichwa: ${jobTitle}
+Maelezo: ${jobDescription}
+
+Sababu ya Mgogoro (Kutoka kwa aliyelalamika): ${userReason}
+
+Mazungumzo yao ya hivi karibuni:
+${chatSummary || 'Hakuna mazungumzo.'}
+
+Toa pendekezo la usuluhishi kiuhalisia (Mfano, mlipwe 50/50, au mteja arudishiwe pesa).
+Jibu kwa Kiswahili tu, ukigawa:
+1. Uchambuzi wa Tatizo.
+2. Nani anaonekana kuwa na makosa (kwa ushahidi uliopo).
+3. Pendekezo la Mgawanyo wa Malipo (Escrow).`;
+  return callGemini(prompt);
+}
+
 module.exports = { 
   improveGigDescription, 
   generateJobBrief,
@@ -313,5 +335,6 @@ module.exports = {
   generateMarketTrends,
   generateHandoverReport,
   generateProjectSimulation,
-  evaluateProjectSimulation
+  evaluateProjectSimulation,
+  generateDisputeResolution
 };

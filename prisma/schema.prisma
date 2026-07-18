@@ -54,6 +54,8 @@ model User {
   ownedAgency            Agency?          @relation("AgencyOwner")
   agencyMembership       AgencyMember?    @relation("AgencyMemberRel")
   subContracts           SubContract[]    @relation("SubContractorRel")
+  bountiesPosted         Bounty[]         @relation("ClientBounties")
+  bountySubmissions      BountySubmission[] @relation("FreelancerBountySubmissions")
 }
 
 model Job {
@@ -102,16 +104,18 @@ model Gig {
 }
 
 model Proposal {
-  id           Int            @id @default(autoincrement())
-  coverLetter  String         @db.Text
-  price        Float
-  status       ProposalStatus @default(PENDING)
-  freelancerId Int
-  freelancer   User           @relation("FreelancerProposals", fields: [freelancerId], references: [id])
-  jobId        Int
-  job          Job            @relation(fields: [jobId], references: [id])
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id               Int            @id @default(autoincrement())
+  coverLetter      String         @db.Text
+  price            Float
+  status           ProposalStatus @default(PENDING)
+  aiScore          Float?
+  aiRecommendation String?        @db.Text
+  freelancerId     Int
+  freelancer       User           @relation("FreelancerProposals", fields: [freelancerId], references: [id])
+  jobId            Int
+  job              Job            @relation(fields: [jobId], references: [id])
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 }
 
 model Message {
@@ -161,13 +165,15 @@ model Payment {
 }
 
 model Dispute {
-  id        Int           @id @default(autoincrement())
-  reason    String        @db.Text
-  status    DisputeStatus @default(PENDING)
-  userId    Int
-  user      User          @relation(fields: [userId], references: [id])
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id               Int           @id @default(autoincrement())
+  reason           String        @db.Text
+  aiRecommendation String?       @db.Text
+  status           DisputeStatus @default(PENDING)
+  jobId            Int?
+  userId           Int
+  user             User          @relation(fields: [userId], references: [id])
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 }
 
 model Notification {
@@ -248,6 +254,30 @@ model RetainerContract {
   freelancer   User     @relation("FreelancerRetainers", fields: [freelancerId], references: [id])
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model Bounty {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String   @db.Text
+  amount      Float
+  status      JobStatus @default(OPEN)
+  clientId    Int
+  client      User     @relation("ClientBounties", fields: [clientId], references: [id])
+  submissions BountySubmission[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model BountySubmission {
+  id           Int      @id @default(autoincrement())
+  content      String   @db.Text
+  status       ProposalStatus @default(PENDING)
+  bountyId     Int
+  bounty       Bounty   @relation(fields: [bountyId], references: [id])
+  freelancerId Int
+  freelancer   User     @relation("FreelancerBountySubmissions", fields: [freelancerId], references: [id])
+  createdAt    DateTime @default(now())
 }
 
 // ── Enums ──────────────────────────────────────────────────────────────────
