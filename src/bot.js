@@ -28,18 +28,16 @@ if (process.env.ADMIN_IDS) {
 // ── Bot Commands Menu ─────────────────────────────────────────────────────────
 bot.telegram.setMyCommands([
   { command: 'start',        description: '🏠 Anza upya — Menyu Kuu' },
-  { command: 'gigs',         description: '🔍 Tafuta Gigs (gigs logo, gigs web, n.k.)' },
-  { command: 'jobs',         description: '💼 Tafuta Kazi (jobs design, jobs code, n.k.)' },
-  { command: 'profile',      description: '👤 Profile yako na takwimu' },
-  { command: 'messages',     description: '💬 Mazungumzo yako' },
-  { command: 'wallet',       description: '👝 Angalia salio lako la GigLink' },
-  { command: 'withdraw',     description: '💸 Toa pesa kwenda M-Pesa' },
-  { command: 'career',       description: '📈 Angalia ramani yako ya mafanikio (Career Path)' },
-  { command: 'invite',       description: '🎁 Pata Referral Link yako na ujishindie TZS 5,000' },
-  { command: 'leaderboard',  description: '🏆 Orodha ya Freelancers Bora' },
-  { command: 'dashboard',    description: '📊 Uchambuzi wa Mapato Yako (BI Dashboard)' },
-  { command: 'client_stats', description: '📉 Matumizi yako kama Mteja (Client Spend)' },
-  { command: 'trends',       description: '📈 Ripoti ya Mwenendo wa Soko (AI Market Trends)' },
+  { command: 'gigs',         description: '🔍 Tafuta Gigs (Huduma)' },
+  { command: 'jobs',         description: '💼 Tafuta Kazi zilizopostiwa' },
+  { command: 'profile',      description: '👤 Profile yako, Level na Beji' },
+  { command: 'messages',     description: '💬 Mazungumzo yako na wateja' },
+  { command: 'wallet',       description: '👝 Angalia salio na kutoa pesa' },
+  { command: 'invite',       description: '🎁 Alika marafiki ujipatie asilimia (Referral)' },
+  { command: 'dashboard',    description: '📊 Angalia mapato yako kwenye Mini App' },
+  { command: 'bounties',     description: '🏆 Kazi ndogondogo za haraka (Bounties)' },
+  { command: 'my_agency',    description: '🏢 Unda au Simamia Wakala wako' },
+  { command: 'vacation',     description: '🌴 Washa/Zima likizo (Vacation mode)' },
   { command: 'help',         description: '❓ Msaada na maelekezo' }
 ]).catch(() => {});
 
