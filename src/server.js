@@ -67,6 +67,44 @@ app.get('/dashboard', async (req, res) => {
       }
     }
 
+    // -- LIVE ACTIVITY FEED --
+    let activities = [];
+    
+    const recentJobs = await prisma.job.findMany({
+      where: { status: 'COMPLETED' },
+      orderBy: { updatedAt: 'desc' },
+      take: 5,
+      include: { freelancer: true }
+    });
+    for (const j of recentJobs) {
+      if (j.freelancer) {
+        activities.push({
+          date: j.updatedAt,
+          text: `✅ <b>${j.freelancer.firstName}</b> amemaliza kazi ya ${j.title.substring(0, 20)}...`
+        });
+      }
+    }
+
+    const recentProds = await prisma.digitalProduct.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 3,
+      include: { seller: true }
+    });
+    for (const p of recentProds) {
+      if (p.seller) {
+        activities.push({
+          date: p.createdAt,
+          text: `🛒 <b>${p.seller.firstName}</b> ameweka bidhaa mpya: ${p.title.substring(0, 20)}...`
+        });
+      }
+    }
+
+    activities.sort((a, b) => b.date - a.date);
+    activities = activities.slice(0, 5);
+
+    let activityHtml = activities.map(a => `<div class="activity-item">${a.text}</div>`).join('');
+    if (!activityHtml) activityHtml = `<div class="activity-item">Hakuna matukio mapya kwa sasa.</div>`;
+
     const html = `
 <!DOCTYPE html>
 <html lang="sw">
@@ -113,6 +151,38 @@ app.get('/dashboard', async (req, res) => {
     .header h1 { margin: 0 0 5px 0; font-size: 26px; font-weight: 700; background: var(--accent-grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     .header p { margin: 0; color: var(--text-muted); font-size: 14px; }
     
+    .feed-container {
+      background: rgba(0,0,0,0.25);
+      border-radius: 12px;
+      padding: 12px 15px;
+      margin-bottom: 20px;
+      border: 1px solid rgba(255,255,255,0.05);
+      display: flex;
+      align-items: center;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    .feed-title {
+      font-size: 12px; color: var(--accent); font-weight: bold; margin-right: 15px;
+      border-right: 1px solid rgba(255,255,255,0.1); padding-right: 15px; flex-shrink: 0;
+    }
+    .activity-wrapper {
+      display: inline-block;
+      animation: marquee 25s linear infinite;
+      padding-left: 100%;
+    }
+    .activity-item {
+      display: inline-block;
+      font-size: 14px;
+      color: #e2e8f0;
+      margin-right: 50px;
+    }
+    .activity-item b { color: var(--accent); }
+    @keyframes marquee {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-100%); }
+    }
+
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
     .stat-box { background: rgba(0,0,0,0.25); border-radius: 12px; padding: 16px; border: 1px solid rgba(255,255,255,0.05); }
     .stat-box.highlight { background: linear-gradient(135deg, rgba(56,189,248,0.1), rgba(129,140,248,0.1)); border-color: rgba(56,189,248,0.2); }
@@ -141,6 +211,13 @@ app.get('/dashboard', async (req, res) => {
   <div class="glass-card header">
     <h1 id="greeting">Jambo!</h1>
     <p>Huu ni muhtasari wako wa GigLink Dashboard</p>
+  </div>
+
+  <div class="feed-container glass-card" style="padding: 12px 15px;">
+    <div class="feed-title">🔥 LIVE</div>
+    <div class="activity-wrapper">
+      ${activityHtml}
+    </div>
   </div>
   
   <div class="glass-card">
