@@ -2053,7 +2053,7 @@ bot.command('dashboard', async (ctx) => {
     msg += `🔄 Wateja Wanaorudi: *${returnClients.toFixed(1)}%*\n`;
     msg += `🔥 Streak Yako: *Siku ${user.streakDays}*\n`;
 
-    const appUrl = process.env.WEBHOOK_URL ? `${process.env.WEBHOOK_URL}/dashboard?tgId=${user.telegramId}` : `https://your-domain.com/dashboard?tgId=${user.telegramId}`;
+    const appUrl = process.env.WEBHOOK_URL ? `${process.env.WEBHOOK_URL}/dashboard?tgId=${user.telegramId}` : `https://nipedili.mdandu.com/dashboard?tgId=${user.telegramId}`;
 
     await ctx.reply(msg, { 
       parse_mode: 'Markdown',
