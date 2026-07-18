@@ -22,4 +22,18 @@ function getStars(rating) {
   return '⭐'.repeat(r) + '☆'.repeat(5 - r);
 }
 
-module.exports = { getLevel, getStars };
+/**
+ * Rudisha Badge inayoendana na Streak Days za freelancer.
+ * @param {number} streakDays
+ * @returns {string}
+ */
+function getStreakBadge(streakDays) {
+  if (streakDays >= 365) return '👑 Legendary (Miezi 12+)';
+  if (streakDays >= 240) return '🌟 Elite Talent (Miezi 8+)';
+  if (streakDays >= 150) return '🛡️ Pro Worker (Miezi 5+)';
+  if (streakDays >= 90)  return '🔥 Consistent Performer (Miezi 3+)';
+  if (streakDays >= 14)  return '🚀 Rising Star (Siku 14+)';
+  return '🌱 Starter';
+}
+
+module.exports = { getLevel, getStars, getStreakBadge };
