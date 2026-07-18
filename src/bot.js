@@ -274,9 +274,9 @@ bot.command('profile', async (ctx) => {
       : 0;
     await ctx.replyWithMarkdown(
       `👤 *Profile Yako*\n\n` +
-      `*Jina:* ${user.firstName || 'Haijawekwa'}\n` +
+      `*Jina:* ${user.firstName || 'Haijawekwa'} ${user.isVerifiedPro ? '🏅' : ''} ${user.isVacationMode ? '🌴' : ''}\n` +
       `*Username:* @${user.username || 'haijawekwa'}\n` +
-      `*Kiwango:* ${user.level}\n` +
+      `*Kiwango:* ${user.level} ${user.isVerifiedPro ? '(Verified Pro)' : ''}\n` +
       `*Role:* ${user.role}\n` +
       `*Ukaguzi:* ${avg ? getStars(avg) : 'Bado'} ${avg ? `(${avg.toFixed(1)}/5, ukaguzi ${user.reviewsReceived.length})` : ''}\n` +
       `*Trust Score:* ${user.trustScore.toFixed(1)}/100\n` +
@@ -408,8 +408,31 @@ bot.action('smart_match', async (ctx) => {
 
 bot.action('post_job', async (ctx) => {
   await ctx.answerCbQuery('');
-  ctx.session = { action: 'posting_job', step: 'title' };
-  await ctx.reply('📝 *Job Posting Wizard*\n\n*Hatua 1 ya 4:* Weka kichwa cha kazi unayotaka mtu\n\n_Mfano: Nahitaji Logo Designer_', cancelExtra({ parse_mode: 'Markdown' }));
+  ctx.session = { action: 'posting_job', step: 'is_trial' };
+  await ctx.reply('📝 *Job Posting Wizard*\n\nJe, hii ni "Kazi Ndogo ya Majaribio" (Trial Micro-Gig) ya bei nafuu kumpima freelancer, au ni mradi kamili?\n\nChagua hapa chini:', {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: [
+      [Markup.button.callback('🧪 Ndiyo, ni Trial Job (Max 50k)', 'post_trial_yes')],
+      [Markup.button.callback('💼 Hapana, ni Mradi Kamili', 'post_trial_no')],
+      [Markup.button.callback('❌ Ghairi', 'cancel_wizard')]
+    ]}
+  });
+});
+
+bot.action('post_trial_yes', async (ctx) => {
+  await ctx.answerCbQuery('');
+  if (!ctx.session || ctx.session.action !== 'posting_job') return;
+  ctx.session.isTrial = true;
+  ctx.session.step = 'title';
+  await ctx.reply('*Hatua 1 ya 4:* Weka kichwa cha kazi (Trial) unayotaka mtu\n\n_Mfano: Majaribio ya Kutengeneza Logo_', cancelExtra({ parse_mode: 'Markdown' }));
+});
+
+bot.action('post_trial_no', async (ctx) => {
+  await ctx.answerCbQuery('');
+  if (!ctx.session || ctx.session.action !== 'posting_job') return;
+  ctx.session.isTrial = false;
+  ctx.session.step = 'title';
+  await ctx.reply('*Hatua 1 ya 4:* Weka kichwa cha kazi unayotaka mtu\n\n_Mfano: Nahitaji Logo Designer_', cancelExtra({ parse_mode: 'Markdown' }));
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -451,7 +474,7 @@ bot.action('browse_jobs', async (ctx) => {
     });
     if (!jobs.length) return ctx.reply('📭 Hakuna Kazi wazi kwa sasa. Angalia tena baadaye!');
     const btns = jobs.map(j => [Markup.button.callback(
-      `💼 ${j.title.substring(0,28)} — TZS ${j.budget.toLocaleString()}`, `vj_${j.id}`
+      `${j.isTrial ? '🧪 Trial | ' : '💼 '}${j.title.substring(0,28)} — TZS ${j.budget.toLocaleString()}`, `vj_${j.id}`
     )]);
     btns.push([Markup.button.callback('🔙 Rudi', 'freelancer_menu')]);
     await ctx.reply('🔍 *Kazi Zinazosubiri Freelancer:*\n\nBofya kazi uone maelezo:', { parse_mode: 'Markdown', reply_markup: { inline_keyboard: btns } });
@@ -512,7 +535,7 @@ bot.action(/^vj_(\d+)$/, async (ctx) => {
       compInfo = `\n\n🏢 *Kuhusu Mteja (Employer Branding):*\n*Kampuni:* ${p.name}\n*Sekta:* ${p.industry}\n*Website:* ${p.website || 'N/A'}\n_${p.description}_`;
     }
     
-    const msg = `💼 *${job.title}*\n\n📋 *Maelezo:* ${job.description || 'Haijawekwa'}\n🏷️ *Kategoria:* ${job.category}\n🛠️ *Skills:* ${job.skills || 'Zote'}\n💰 *Bajeti:* TZS ${job.budget.toLocaleString()}\n📅 *Mwisho:* ${dl}\n📬 *Maombi:* ${job._count.proposals}${compInfo}`;
+    const msg = `${job.isTrial ? '🧪 *KAZI YA MAJARIBIO (TRIAL)*' : '💼'} *${job.title}*\n\n📋 *Maelezo:* ${job.description || 'Haijawekwa'}\n🏷️ *Kategoria:* ${job.category}\n🛠️ *Skills:* ${job.skills || 'Zote'}\n💰 *Bajeti:* TZS ${job.budget.toLocaleString()}\n📅 *Mwisho:* ${dl}\n📬 *Maombi:* ${job._count.proposals}${compInfo}`;
     await ctx.reply(msg, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
       [Markup.button.callback('📩 Tuma Ombi (Apply)', `spr_${jobId}`)],
       [Markup.button.callback('🔙 Rudi', 'browse_jobs')]
@@ -560,7 +583,7 @@ bot.action(/^vp_(\d+)$/, async (ctx) => {
       aiScore = `\n\n🤖 *AI Predictive Score:*\n_${scoreObj}_`;
     }
 
-    const msg = `📩 *Ombi kutoka ${p.freelancer.firstName || 'Freelancer'}*\n${p.freelancer.level} | ⭐ ${p.freelancer.trustScore.toFixed(1)}\n\n*Cover Letter:*\n${p.coverLetter}\n\n*Bei:* TZS ${p.price.toLocaleString()}${aiScore}`;
+    const msg = `📩 *Ombi kutoka ${p.freelancer.firstName || 'Freelancer'} ${p.freelancer.isVerifiedPro ? '🏅' : ''} ${p.freelancer.isVacationMode ? '🌴' : ''}*\n${p.freelancer.level} | ⭐ ${p.freelancer.trustScore.toFixed(1)}\n\n*Cover Letter:*\n${p.coverLetter}\n\n*Bei:* TZS ${p.price.toLocaleString()}${aiScore}`;
     const btns = p.status === 'PENDING'
       ? [
           [Markup.button.callback('✅ Kubali', `acc_${pid}`), Markup.button.callback('❌ Kataa', `rej_${pid}`)], 
@@ -920,6 +943,35 @@ bot.on('text', async (ctx, next) => {
     }
   }
 
+  // ── PROJECT SIMULATION (2 hatua) ───────────────────────────────────────
+  else if (s.action === 'simulating_project') {
+    if (s.step === 'ask_skill') {
+      s.skill = text;
+      s.step = 'submit_solution';
+      await ctx.reply('🤖 *AI inaandaa mradi wako...*', { parse_mode: 'Markdown' });
+      const { generateProjectSimulation } = require('./helpers/ai');
+      const projectPrompt = await generateProjectSimulation(s.skill);
+      s.projectDescription = projectPrompt;
+      return ctx.reply(`🏅 *Mradi Wako Ndio Huu:*\n\n${projectPrompt}\n\n*Hatua Inayofuata:*\nFanya mradi huu, kisha tuma Link (mf. GitHub, Google Drive, Vercel) yenye majibu au kazi uliyofanya hapa chini:`, cancelExtra({ parse_mode: 'Markdown' }));
+    }
+    if (s.step === 'submit_solution') {
+      const submission = text;
+      await ctx.reply('🤖 *Inatathmini kazi yako...*\nInachukua muda kidogo, tafadhali subiri.', { parse_mode: 'Markdown' });
+      const { evaluateProjectSimulation } = require('./helpers/ai');
+      const review = await evaluateProjectSimulation(s.skill, s.projectDescription, submission);
+      
+      const passed = review.includes('PASSED');
+      if (passed) {
+        const user = await getOrCreateUser(ctx);
+        await prisma.user.update({ where: { id: user.id }, data: { isVerifiedPro: true } });
+        await ctx.reply(`🎉 *Hongera Sana!*\n\nUmefaulu mradi wa majaribio.\n\n${review}\n\nSasa umepata beji ya 🏅 *Verified Pro*! Hii itaongeza sana uaminifu wako kwa wateja.`, { parse_mode: 'Markdown' });
+      } else {
+        await ctx.reply(`❌ *Hujafaulu Majaribio (FAILED)*\n\n${review}\n\nUsikate tamaa! Jifunze zaidi na ujaribu tena baadaye (/simulate_project).`, { parse_mode: 'Markdown' });
+      }
+      ctx.session = null;
+    }
+  }
+
   // ── SELLING DIGITAL PRODUCT (5 hatua) ──────────────────────────────────
   if (s.action === 'selling_product') {
     if (s.step === 'title') {
@@ -1001,6 +1053,7 @@ bot.on('text', async (ctx, next) => {
     if (s.step === 'budget') {
       const budget = parseFloat(text);
       if (isNaN(budget)) return ctx.reply('❌ Ingiza namba tu. _Mfano: 150000_', cancelExtra({ parse_mode: 'Markdown' }));
+      if (s.isTrial && budget > 50000) return ctx.reply('❌ Kazi ya Majaribio (Trial) haiwezi kuzidi TZS 50,000. Tafadhali weka bajeti ndogo zaidi.', cancelExtra({ parse_mode: 'Markdown' }));
       s.jobBudget = budget; s.step = 'deadline';
       return ctx.reply('*Hatua 4 ya 4:* Kazi ikamilike ndani ya siku ngapi?\n\nIngiza *namba tu*. _Mfano: 7_', cancelExtra({ parse_mode: 'Markdown' }));
     }
@@ -1012,7 +1065,7 @@ bot.on('text', async (ctx, next) => {
         const user = await getOrCreateUser(ctx, 'CLIENT');
         const job  = await prisma.job.create({ data: {
           title: s.jobTitle, description: s.jobAIDescription || null,
-          category: s.jobCategory || 'General', budget: s.jobBudget, deadline, clientId: user.id
+          category: s.jobCategory || 'General', budget: s.jobBudget, deadline, clientId: user.id, isTrial: s.isTrial || false
         }});
         ctx.session = null;
         await ctx.replyWithMarkdown(`🎉 *Kazi imepostiwa!*\n\n📌 *${job.title}*\n🏷️ ${job.category} | 💰 TZS ${job.budget.toLocaleString()} | 📅 Siku ${days}\n\n_ID: ${job.id}_ — Freelancers sasa wanaweza kuomba!\n\nTumia /start au /jobs kuendelea.`);
@@ -1775,6 +1828,23 @@ bot.command('handover', async (ctx) => {
   } catch(e) {
     console.error(e);
     await ctx.reply(`❌ Kosa kwenye /handover: ${e.message}`);
+  }
+});
+
+// ── Phase 9: Project Simulation ──────────────────────────────────────────
+
+bot.command('simulate_project', async (ctx) => {
+  try {
+    const user = await getOrCreateUser(ctx);
+    if (user.isVerifiedPro) {
+      return ctx.reply('🏅 Wewe tayari ni "Verified Pro". Huna haja ya kufanya simulation tena!');
+    }
+    
+    ctx.session = { action: 'simulating_project', step: 'ask_skill' };
+    await ctx.reply('🏅 *Skill-Based Project Simulation*\n\nIli kupata beji ya "Verified Pro", AI itakupa mradi mdogo wa kiuhalisia.\n\nTafadhali andika Ujuzi wako (Skill) unaotaka kufanyiwa mtihani. _Mfano: React, Python, Logo Design, Copywriting_:', cancelExtra({ parse_mode: 'Markdown' }));
+  } catch(e) {
+    console.error(e);
+    await ctx.reply('Hitilafu imetokea.');
   }
 });
 

@@ -265,6 +265,39 @@ Format nzuri ya Markdown (Tumia bullet points na bold text).`;
   return callGemini(prompt);
 }
 
+/**
+ * Phase 9: Project Simulation
+ */
+async function generateProjectSimulation(skill) {
+  const prompt = `Wewe ni Mkufunzi (GigLink). Tengeneza "Mradi Mdogo wa Majaribio" (Project Simulation) kwa ajili ya freelancer mwenye ujuzi wa "${skill}".
+Mradi huu unapaswa kuwa wa vitendo na unaoweza kufanywa ndani ya masaa machache.
+
+Lengo ni kupima uwezo wake ili kumpa "Verified Pro Badge".
+Orodhesha:
+1. Jina la Mradi (Project Title).
+2. Maelezo ya Mradi (Requirements).
+3. Nini awasilishe (Deliverables) mfano "GitHub Link", "Figma Link" au "Google Doc".
+
+Jibu kwa Kiswahili tu, ukiwa na lugha yenye hamasa. Tumia Markdown.`;
+  return callGemini(prompt);
+}
+
+async function evaluateProjectSimulation(skill, projectDescription, userSubmission) {
+  const prompt = `Wewe ni Mkaguzi wa Ubora (GigLink). Freelancer amewasilisha kazi ya majaribio ili kupata "Verified Pro Badge".
+
+Ujuzi (Skill): ${skill}
+Mradi Aliopewa: ${projectDescription}
+Kazi Aliyowasilisha (Submission/Link): ${userSubmission}
+
+Tathmini kazi hii kiuhalisia (ingawa unaweza kukosa uwezo wa kufungua link, angalia maelezo aliyoweka).
+Je, amefaulu na anastahili "Verified Pro Badge"?
+
+Jibu na:
+1. Ukaguzi (Review) - Maneno yasizidi 50.
+2. Uamuzi - Andika neno "PASSED" au "FAILED" tu kwenye mstari wa mwisho.`;
+  return callGemini(prompt);
+}
+
 module.exports = { 
   improveGigDescription, 
   generateJobBrief,
@@ -278,5 +311,7 @@ module.exports = {
   translateMessage,
   transcribeAudio,
   generateMarketTrends,
-  generateHandoverReport
+  generateHandoverReport,
+  generateProjectSimulation,
+  evaluateProjectSimulation
 };
