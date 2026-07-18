@@ -51,6 +51,9 @@ model User {
   companyPage            CompanyPage?     @relation("CompanyPageOwner")
   favoriteFreelancers    FavoriteFreelancer[] @relation("ClientFavorites")
   favoritedBy            FavoriteFreelancer[] @relation("FavoritedBy")
+  ownedAgency            Agency?          @relation("AgencyOwner")
+  agencyMembership       AgencyMember?    @relation("AgencyMemberRel")
+  subContracts           SubContract[]    @relation("SubContractorRel")
 }
 
 model Job {
@@ -76,6 +79,8 @@ model Job {
   insuranceFee Float      @default(0)
   currency     String     @default("TZS")
   isTrial      Boolean    @default(false)
+  isConcierge  Boolean    @default(false)
+  subContracts SubContract[] @relation("JobSubContracts")
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 }
@@ -372,4 +377,46 @@ model FavoriteFreelancer {
   createdAt    DateTime @default(now())
 
   @@unique([clientId, freelancerId])
+}
+
+model Agency {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String   @db.Text
+  ownerId     Int      @unique
+  owner       User     @relation("AgencyOwner", fields: [ownerId], references: [id])
+  members     AgencyMember[]
+  subContracts SubContract[]
+  createdAt   DateTime @default(now())
+}
+
+model AgencyMember {
+  id           Int      @id @default(autoincrement())
+  agencyId     Int
+  agency       Agency   @relation(fields: [agencyId], references: [id])
+  freelancerId Int      @unique
+  freelancer   User     @relation("AgencyMemberRel", fields: [freelancerId], references: [id])
+  role         String   @default("MEMBER") // ADMIN au MEMBER
+  createdAt    DateTime @default(now())
+}
+
+model SubContract {
+  id               Int      @id @default(autoincrement())
+  jobId            Int
+  job              Job      @relation("JobSubContracts", fields: [jobId], references: [id])
+  agencyId         Int
+  agency           Agency   @relation(fields: [agencyId], references: [id])
+  subFreelancerId  Int
+  subFreelancer    User     @relation("SubContractorRel", fields: [subFreelancerId], references: [id])
+  taskDescription  String   @db.Text
+  amount           Float
+  status           SubContractStatus @default(PENDING)
+  createdAt        DateTime @default(now())
+}
+
+enum SubContractStatus {
+  PENDING
+  ACCEPTED
+  COMPLETED
+  PAID
 }

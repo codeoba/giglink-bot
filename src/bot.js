@@ -113,6 +113,23 @@ bot.use(async (ctx, next) => {
             }
           }
         }
+        // Handle Agency Invites
+        if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/start AGENCY_')) {
+          const agencyId = parseInt(ctx.message.text.split('_')[1]);
+          if (!isNaN(agencyId)) {
+            const agency = await prisma.agency.findUnique({ where: { id: agencyId }, include: { owner: true } });
+            if (agency && agency.ownerId !== user.id) {
+              const existingMember = await prisma.agencyMember.findFirst({ where: { agencyId, freelancerId: user.id } });
+              if (!existingMember) {
+                await prisma.agencyMember.create({ data: { agencyId, freelancerId: user.id, role: 'MEMBER' } });
+                try {
+                  await ctx.reply(`🏢 *Umefanikiwa Kujiunga!*\n\nSasa wewe ni mwanachama wa Wakala (Agency) wa *${agency.name}*.`, { parse_mode: 'Markdown' });
+                  await bot.telegram.sendMessage(Number(agency.owner.telegramId), `🏢 *Mwanachama Mpya!*\n\n${user.firstName} amejiunga na Wakala wako.`, { parse_mode: 'Markdown' });
+                } catch(e) {}
+              }
+            }
+          }
+        }
         
         // Update streak
         const streakData = await updateStreak(user.id);
@@ -409,11 +426,12 @@ bot.action('smart_match', async (ctx) => {
 bot.action('post_job', async (ctx) => {
   await ctx.answerCbQuery('');
   ctx.session = { action: 'posting_job', step: 'is_trial' };
-  await ctx.reply('📝 *Job Posting Wizard*\n\nJe, hii ni "Kazi Ndogo ya Majaribio" (Trial Micro-Gig) ya bei nafuu kumpima freelancer, au ni mradi kamili?\n\nChagua hapa chini:', {
+  await ctx.reply('📝 *Job Posting Wizard*\n\nChagua Aina ya Mradi unaotaka kuweka hapa chini:', {
     parse_mode: 'Markdown',
     reply_markup: { inline_keyboard: [
-      [Markup.button.callback('🧪 Ndiyo, ni Trial Job (Max 50k)', 'post_trial_yes')],
-      [Markup.button.callback('💼 Hapana, ni Mradi Kamili', 'post_trial_no')],
+      [Markup.button.callback('🧪 Kazi ya Majaribio (Trial) - Max 50k', 'post_trial_yes')],
+      [Markup.button.callback('💼 Mradi wa Kawaida', 'post_trial_no')],
+      [Markup.button.callback('💎 White-Glove Concierge (Premium)', 'post_concierge')],
       [Markup.button.callback('❌ Ghairi', 'cancel_wizard')]
     ]}
   });
@@ -423,8 +441,27 @@ bot.action('post_trial_yes', async (ctx) => {
   await ctx.answerCbQuery('');
   if (!ctx.session || ctx.session.action !== 'posting_job') return;
   ctx.session.isTrial = true;
+  ctx.session.isConcierge = false;
   ctx.session.step = 'title';
   await ctx.reply('*Hatua 1 ya 4:* Weka kichwa cha kazi (Trial) unayotaka mtu\n\n_Mfano: Majaribio ya Kutengeneza Logo_', cancelExtra({ parse_mode: 'Markdown' }));
+});
+
+bot.action('post_trial_no', async (ctx) => {
+  await ctx.answerCbQuery('');
+  if (!ctx.session || ctx.session.action !== 'posting_job') return;
+  ctx.session.isTrial = false;
+  ctx.session.isConcierge = false;
+  ctx.session.step = 'title';
+  await ctx.reply('*Hatua 1 ya 4:* Weka kichwa cha kazi unayotaka mtu\n\n_Mfano: Nahitaji Logo Designer_', cancelExtra({ parse_mode: 'Markdown' }));
+});
+
+bot.action('post_concierge', async (ctx) => {
+  await ctx.answerCbQuery('');
+  if (!ctx.session || ctx.session.action !== 'posting_job') return;
+  ctx.session.isTrial = false;
+  ctx.session.isConcierge = true;
+  ctx.session.step = 'title';
+  await ctx.reply('💎 *White-Glove Concierge*\n\nGigLink itasimamia mradi huu kuanzia mwanzo hadi mwisho (Kima cha chini TZS 500,000).\n\n*Hatua 1 ya 4:* Weka kichwa cha kazi yako:', cancelExtra({ parse_mode: 'Markdown' }));
 });
 
 bot.action('post_trial_no', async (ctx) => {
@@ -972,6 +1009,74 @@ bot.on('text', async (ctx, next) => {
     }
   }
 
+  // ── CREATING AGENCY (2 hatua) ──────────────────────────────────────────
+  else if (s.action === 'creating_agency') {
+    if (s.step === 'name') {
+      s.agencyName = text;
+      s.step = 'description';
+      return ctx.reply('*Hatua 2 ya 2:* Maelezo ya Wakala\n\nElezea Wakala wako unafanya nini, na kwa nini wateja wakupe miradi mikubwa:', cancelExtra({ parse_mode: 'Markdown' }));
+    }
+    if (s.step === 'description') {
+      try {
+        const user = await getOrCreateUser(ctx);
+        const agency = await prisma.agency.create({
+          data: {
+            name: s.agencyName,
+            description: text,
+            ownerId: user.id
+          }
+        });
+        // Ongeza owner kama member
+        await prisma.agencyMember.create({
+          data: {
+            agencyId: agency.id,
+            freelancerId: user.id,
+            role: 'ADMIN'
+          }
+        });
+        ctx.session = null;
+        await ctx.reply(`🎉 *Wakala Wako Umeundwa!*\n\nJina: ${agency.name}\n\nTumia /my_agency kuona link ya kuwaalika freelancers wengine wajiunge na timu yako!`, { parse_mode: 'Markdown' });
+      } catch (err) {
+        console.error(err);
+        await ctx.reply('❌ Hitilafu imetokea. Huenda tayari una Wakala mwingine.');
+      }
+    }
+  }
+
+  // ── SUBCONTRACTING (2 hatua) ───────────────────────────────────────────
+  else if (s.action === 'subcontracting') {
+    if (s.step === 'task') {
+      s.taskDesc = text;
+      s.step = 'amount';
+      return ctx.reply('Kiasi gani (TZS) unataka kumlipa? (Hakikisha haizidi bajeti ya mradi)\nIngiza namba tu:', cancelExtra({ parse_mode: 'Markdown' }));
+    }
+    if (s.step === 'amount') {
+      const amt = parseFloat(text);
+      if (isNaN(amt)) return ctx.reply('❌ Ingiza namba tu.');
+      
+      try {
+        const user = await getOrCreateUser(ctx);
+        const agency = await prisma.agency.findUnique({ where: { ownerId: user.id } });
+        
+        await prisma.subContract.create({
+          data: {
+            jobId: s.jobId,
+            agencyId: agency.id,
+            subFreelancerId: s.subId,
+            taskDescription: s.taskDesc,
+            amount: amt,
+            status: 'ACCEPTED'
+          }
+        });
+        ctx.session = null;
+        await ctx.reply('✅ *Sub-Contract Imekamilika!*\n\nMwanachama wako atapokea malipo moja kwa moja mteja akilipa na kazi itakapokamilika.', { parse_mode: 'Markdown' });
+      } catch (err) {
+        console.error(err);
+        await ctx.reply('❌ Hitilafu imetokea. Jaribu tena.');
+      }
+    }
+  }
+
   // ── SELLING DIGITAL PRODUCT (5 hatua) ──────────────────────────────────
   if (s.action === 'selling_product') {
     if (s.step === 'title') {
@@ -1054,6 +1159,7 @@ bot.on('text', async (ctx, next) => {
       const budget = parseFloat(text);
       if (isNaN(budget)) return ctx.reply('❌ Ingiza namba tu. _Mfano: 150000_', cancelExtra({ parse_mode: 'Markdown' }));
       if (s.isTrial && budget > 50000) return ctx.reply('❌ Kazi ya Majaribio (Trial) haiwezi kuzidi TZS 50,000. Tafadhali weka bajeti ndogo zaidi.', cancelExtra({ parse_mode: 'Markdown' }));
+      if (s.isConcierge && budget < 500000) return ctx.reply('❌ Miradi ya Concierge inapaswa kuanzia TZS 500,000. Tafadhali weka bajeti kubwa zaidi.', cancelExtra({ parse_mode: 'Markdown' }));
       s.jobBudget = budget; s.step = 'deadline';
       return ctx.reply('*Hatua 4 ya 4:* Kazi ikamilike ndani ya siku ngapi?\n\nIngiza *namba tu*. _Mfano: 7_', cancelExtra({ parse_mode: 'Markdown' }));
     }
@@ -1065,10 +1171,19 @@ bot.on('text', async (ctx, next) => {
         const user = await getOrCreateUser(ctx, 'CLIENT');
         const job  = await prisma.job.create({ data: {
           title: s.jobTitle, description: s.jobAIDescription || null,
-          category: s.jobCategory || 'General', budget: s.jobBudget, deadline, clientId: user.id, isTrial: s.isTrial || false
+          category: s.jobCategory || 'General', budget: s.jobBudget, deadline, clientId: user.id, isTrial: s.isTrial || false, isConcierge: s.isConcierge || false
         }});
         ctx.session = null;
-        await ctx.replyWithMarkdown(`🎉 *Kazi imepostiwa!*\n\n📌 *${job.title}*\n🏷️ ${job.category} | 💰 TZS ${job.budget.toLocaleString()} | 📅 Siku ${days}\n\n_ID: ${job.id}_ — Freelancers sasa wanaweza kuomba!\n\nTumia /start au /jobs kuendelea.`);
+        
+        if (job.isConcierge) {
+          await ctx.replyWithMarkdown(`💎 *Mradi wa Concierge Umepokelewa!*\n\n📌 *${job.title}*\n💰 TZS ${job.budget.toLocaleString()}\n\nAsante! Timu ya GigLink pamoja na Account Manager wetu wa AI wanaufanyia kazi mradi wako. Tutawasiliana na wewe hivi punde kuanza mradi huu.\n\n_ID: ${job.id}_`);
+          // Notify Ops team
+          Object.keys(ADMIN_MAP).forEach(adminId => {
+            bot.telegram.sendMessage(adminId, `🚨 *MTEJA MKUBWA (CONCIERGE)* 🚨\n\nMteja: ${user.firstName}\nMradi: ${job.title}\nBajeti: TZS ${job.budget.toLocaleString()}\n\nTafadhali ingia mfumo wa usimamizi kumtafutia Verified Pros!`, { parse_mode: 'Markdown' }).catch(()=>{});
+          });
+        } else {
+          await ctx.replyWithMarkdown(`🎉 *Kazi imepostiwa!*\n\n📌 *${job.title}*\n🏷️ ${job.category} | 💰 TZS ${job.budget.toLocaleString()} | 📅 Siku ${days}\n\n_ID: ${job.id}_ — Freelancers sasa wanaweza kuomba!\n\nTumia /start au /jobs kuendelea.`);
+        }
       } catch (err) { console.error(err); await ctx.reply('Hitilafu imetokea. Jaribu tena.'); }
     }
   }
@@ -1192,6 +1307,26 @@ bot.on('text', async (ctx, next) => {
               await prisma.invoice.create({ data: { invoiceNo: invResult.invoiceNo, pdfUrl: invResult.pdfPath, amount, taxAmount: invResult.taxAmount, jobId: s.jobId, status: 'PAID' } });
               await ctx.replyWithDocument({ source: invResult.pdfPath }, { caption: '🧾 *Risiti ya Kielektroniki (E-Invoice)*\nHii hapa ni risiti yako rasmi inayofuata sheria za kodi kwa ajili ya kumbukumbu zako.', parse_mode: 'Markdown' });
             } catch (e) { console.error('Invoice error', e); }
+
+            // --- SUB-CONTRACTING LOGIC (Phase 10) ---
+            const subContracts = await prisma.subContract.findMany({ where: { jobId: s.jobId } });
+            let payoutToMainFreelancer = freelancerAmount;
+
+            for (const sub of subContracts) {
+              if (payoutToMainFreelancer >= sub.amount) {
+                payoutToMainFreelancer -= sub.amount;
+                let subWallet = await prisma.wallet.findFirst({ where: { userId: sub.subFreelancerId, currency: 'TZS' } });
+                if (!subWallet) subWallet = await prisma.wallet.create({ data: { userId: sub.subFreelancerId, currency: 'TZS', balance: 0 } });
+                await prisma.wallet.update({ where: { id: subWallet.id }, data: { balance: subWallet.balance + sub.amount } });
+                await prisma.subContract.update({ where: { id: sub.id }, data: { status: 'PAID' } });
+                try {
+                  const subUser = await prisma.user.findUnique({ where: { id: sub.subFreelancerId } });
+                  await notify(bot, subUser.telegramId, `💰 *Malipo ya Sub-Contract!*\n\nUmepokea TZS ${sub.amount.toLocaleString()} kwa kazi uliyofanya kwenye mradi wa "${job?.title}".\nPesa imeingia kwenye Wallet yako.`, 'PAYMENT');
+                } catch(e) {}
+              }
+            }
+            
+            freelancerAmount = payoutToMainFreelancer;
 
             // Instant Payout Check
             if (fl.trustScore > 85) {
@@ -1831,7 +1966,37 @@ bot.command('handover', async (ctx) => {
   }
 });
 
-// ── Phase 9: Project Simulation ──────────────────────────────────────────
+// ── Phase 10: Agencies & Sub-Contracting ───────────────────────────────
+
+bot.command('my_agency', async (ctx) => {
+  try {
+    const user = await getOrCreateUser(ctx);
+    const agency = await prisma.agency.findUnique({
+      where: { ownerId: user.id },
+      include: { members: { include: { freelancer: true } } }
+    });
+
+    if (!agency) {
+      ctx.session = { action: 'creating_agency', step: 'name' };
+      return ctx.reply('🏢 *Tengeneza Wakala wako (Agency)*\n\nKama wewe ni Freelancer mzoefu, unaweza kuunda Wakala na kuwaajiri wengine.\n\nTafadhali andika Jina la Wakala wako:', cancelExtra({ parse_mode: 'Markdown' }));
+    }
+
+    const inviteLink = `https://t.me/${ctx.botInfo.username}?start=AGENCY_${agency.id}`;
+    let msg = `🏢 *Wakala:* ${agency.name}\n_${agency.description}_\n\n`;
+    msg += `👥 *Wafanyakazi (${agency.members.length}):*\n`;
+    agency.members.forEach((m, i) => {
+      msg += `${i+1}. ${m.freelancer.firstName} (${m.role})\n`;
+    });
+    msg += `\n🔗 *Link ya Kualika Wafanyakazi:*\n\`${inviteLink}\`\n\nWaambie wafanyakazi wako wabofye link hii wakiwa ndani ya Telegram kujiunga na Wakala wako.`;
+    
+    await ctx.reply(msg, { parse_mode: 'Markdown' });
+  } catch(e) {
+    console.error(e);
+    await ctx.reply('Hitilafu imetokea.');
+  }
+});
+
+module.exports = { bot };
 
 bot.command('simulate_project', async (ctx) => {
   try {
@@ -1846,6 +2011,42 @@ bot.command('simulate_project', async (ctx) => {
     console.error(e);
     await ctx.reply('Hitilafu imetokea.');
   }
+});
+
+bot.command('subcontract', async (ctx) => {
+  try {
+    const parts = ctx.message.text.split(' ');
+    if (parts.length !== 2) return ctx.reply('❌ Tumia: /subcontract [ID_ya_Kazi]\nMfano: /subcontract 15');
+    const jobId = parseInt(parts[1]);
+    if (isNaN(jobId)) return ctx.reply('❌ ID inapaswa kuwa namba.');
+
+    const user = await getOrCreateUser(ctx);
+    
+    const agency = await prisma.agency.findUnique({ where: { ownerId: user.id }, include: { members: { include: { freelancer: true } } } });
+    if (!agency) return ctx.reply('❌ Wewe si mmiliki wa Wakala. Tumia /my_agency kutengeneza kwanza.');
+    
+    const job = await prisma.job.findUnique({ where: { id: jobId }, include: { proposals: { where: { status: 'ACCEPTED' } } } });
+    if (!job || job.proposals.length === 0 || job.proposals[0].freelancerId !== user.id) {
+      return ctx.reply('❌ Kazi hii sio yako au bado hujapewa rasmi.');
+    }
+    
+    const members = agency.members.filter(m => m.freelancerId !== user.id);
+    if (members.length === 0) return ctx.reply('❌ Wakala wako hauna wafanyakazi wengine. Tumia /my_agency kuwaalika kwanza.');
+    
+    const btns = members.map(m => [Markup.button.callback(`👤 ${m.freelancer.firstName}`, `sc_usr_${m.freelancerId}_job_${jobId}`)]);
+    await ctx.reply(`🔗 *Sub-Contract Kazi: ${job.title}*\n\nChagua Mwanachama unayetaka kumpa sehemu ya kazi hii:`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: btns } });
+  } catch(e) {
+    console.error(e);
+    await ctx.reply('Hitilafu imetokea.');
+  }
+});
+
+bot.action(/^sc_usr_(\d+)_job_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery('');
+  const subId = parseInt(ctx.match[1]);
+  const jobId = parseInt(ctx.match[2]);
+  ctx.session = { action: 'subcontracting', step: 'task', subId, jobId };
+  await ctx.reply('Tafadhali andika maelezo ya kazi (Task) unayotaka kumpa huyu mwanachama kufanya:', cancelExtra({ parse_mode: 'Markdown' }));
 });
 
 module.exports = { bot };
