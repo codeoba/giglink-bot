@@ -103,12 +103,12 @@ bot.use(async (ctx, next) => {
                 data: {
                   referrerId: referrer.id,
                   referredUserId: user.id,
-                  amount: 5000,
+                  amount: 0,
                   status: 'PENDING'
                 }
               });
               try {
-                await bot.telegram.sendMessage(Number(referrer.telegramId), `🎉 *Hongera!* Rafiki yako ametumia Referral Link yako kujiunga. Utapokea TZS 5,000 pindi atakapokamilisha kazi ya kwanza.`, { parse_mode: 'Markdown' });
+                await bot.telegram.sendMessage(Number(referrer.telegramId), `🎉 *Hongera!* Rafiki yako ametumia Referral Link yako kujiunga. Utapokea asilimia ya malipo pindi atakapokamilisha kazi ya kwanza.`, { parse_mode: 'Markdown' });
               } catch (e) {}
             }
           }
@@ -997,6 +997,42 @@ bot.on('text', async (ctx, next) => {
               // Mark payment EscrowStatus as RELEASED directly since we gave it to Wallet
               await prisma.payment.update({ where: { jobId: s.jobId }, data: { escrowStatus: 'RELEASED' } });
             }
+
+            // --- REFERRAL REWARD LOGIC ---
+            // Check if this freelancer was referred and reward is pending
+            const pendingReward = await prisma.referralReward.findFirst({
+              where: { referredUserId: fl.id, status: 'PENDING' },
+              include: { referrer: true }
+            });
+            
+            if (pendingReward) {
+              // Fetch SystemSettings for referral percentage
+              let settings = await prisma.systemSettings.findUnique({ where: { id: 'default' } });
+              if (!settings) settings = await prisma.systemSettings.create({ data: { id: 'default', referralPercentage: 5.0 } });
+              
+              const refPercentage = settings.referralPercentage;
+              const refAmount = parseFloat(((refPercentage / 100) * amount).toFixed(2));
+              
+              // Update Reward Status and Amount
+              await prisma.referralReward.update({
+                where: { id: pendingReward.id },
+                data: { amount: refAmount, status: 'PAID' }
+              });
+
+              // Add to Referrer's Wallet
+              let refWallet = await prisma.wallet.findFirst({ where: { userId: pendingReward.referrerId, currency: 'TZS' } });
+              if (!refWallet) refWallet = await prisma.wallet.create({ data: { userId: pendingReward.referrerId, currency: 'TZS', balance: 0 } });
+              await prisma.wallet.update({ where: { id: refWallet.id }, data: { balance: refWallet.balance + refAmount } });
+
+              // Notify Referrer
+              try {
+                await bot.telegram.sendMessage(
+                  Number(pendingReward.referrer.telegramId), 
+                  `🎁 *Referral Bonus Imelipwa!*\n\nRafiki uliyemwalika amekamilisha kazi yake ya kwanza.\nUmepata *${refPercentage}%* ya malipo: **TZS ${refAmount.toLocaleString()}**.\n\nPesa hii imeingia moja kwa moja kwenye Wallet yako! /wallet`,
+                  { parse_mode: 'Markdown' }
+                );
+              } catch (e) {}
+            }
           }
         }
       } else {
@@ -1333,6 +1369,7 @@ bot.command('invite', async (ctx) => {
     await ctx.reply(`🎁 *GigLink Referral Program*\n\nAlika marafiki na upate *TZS 5,000* kwa kila rafiki atakayekamilisha kazi yake ya kwanza!\n\n🔗 Link yako ya mwaliko:\n\`${link}\``, { parse_mode: 'Markdown' });
   } catch (e) {
     console.error(e);
+    await ctx.reply(`❌ Kosa kwenye /invite: ${e.message}`);
   }
 });
 
@@ -1350,7 +1387,10 @@ bot.command('leaderboard', async (ctx) => {
       msg += `${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '🎖️'} *${l.firstName}* (Score: ${l.trustScore})\n`;
     });
     await ctx.reply(msg, { parse_mode: 'Markdown' });
-  } catch (e) { console.error(e); }
+  } catch (e) { 
+    console.error(e); 
+    await ctx.reply(`❌ Kosa kwenye /leaderboard: ${e.message}`);
+  }
 });
 
 bot.command('dashboard', async (ctx) => {
@@ -1379,7 +1419,10 @@ bot.command('dashboard', async (ctx) => {
     msg += `🔥 Streak Yako: *Siku ${user.streakDays}*\n`;
 
     await ctx.reply(msg, { parse_mode: 'Markdown' });
-  } catch (e) { console.error(e); }
+  } catch (e) { 
+    console.error(e); 
+    await ctx.reply(`❌ Kosa kwenye /dashboard: ${e.message}`);
+  }
 });
 
 bot.command('client_stats', async (ctx) => {
@@ -1391,7 +1434,10 @@ bot.command('client_stats', async (ctx) => {
     jobs.forEach(j => { if (j.payment) totalSpent += j.payment.amount; });
     
     await ctx.reply(`📉 *Matumizi Yako (Client Spend Analytics)*\n\nJumla ya Miradi: *${jobs.length}*\nJumla ya Fedha Uliyotumia: *TZS ${totalSpent.toLocaleString()}*\n\n_Asante kwa kukuza uchumi na GigLink!_`, { parse_mode: 'Markdown' });
-  } catch (e) { console.error(e); }
+  } catch (e) { 
+    console.error(e); 
+    await ctx.reply(`❌ Kosa kwenye /client_stats: ${e.message}`);
+  }
 });
 
 bot.command('trends', async (ctx) => {
@@ -1404,7 +1450,40 @@ bot.command('trends', async (ctx) => {
     const report = await generateMarketTrends(categories || 'General, IT, Design, Writing');
     
     await ctx.reply(`📊 *Ripoti ya Soko (AI Market Trends)*\n\n${report}`, { parse_mode: 'Markdown' });
-  } catch(e) { console.error(e); }
+  } catch(e) { 
+    console.error(e); 
+    await ctx.reply(`❌ Kosa kwenye /trends: ${e.message}`);
+  }
+});
+
+bot.command('set_ref_percent', async (ctx) => {
+  try {
+    const user = await getOrCreateUser(ctx);
+    if (user.role !== 'ADMIN') {
+      return ctx.reply('❌ Huna idhini ya kutumia command hii. Ni kwa ajili ya Admin pekee.');
+    }
+    
+    const parts = ctx.message.text.split(' ');
+    if (parts.length !== 2) {
+      return ctx.reply('❌ Tumia: /set_ref_percent [asilimia]\nMfano: /set_ref_percent 10');
+    }
+    
+    const percent = parseFloat(parts[1]);
+    if (isNaN(percent) || percent < 0 || percent > 100) {
+      return ctx.reply('❌ Tafadhali weka namba sahihi (0 - 100).');
+    }
+    
+    await prisma.systemSettings.upsert({
+      where: { id: 'default' },
+      update: { referralPercentage: percent },
+      create: { id: 'default', referralPercentage: percent }
+    });
+    
+    await ctx.reply(`✅ *Asilimia ya Referral Imesasishwa!*\nSasa hivi Mwalikaji atapokea *${percent}%* ya malipo ya kazi ya kwanza ya mwalikwa.`, { parse_mode: 'Markdown' });
+  } catch(e) {
+    console.error(e);
+    await ctx.reply(`❌ Kosa kwenye /set_ref_percent: ${e.message}`);
+  }
 });
 
 module.exports = { bot };

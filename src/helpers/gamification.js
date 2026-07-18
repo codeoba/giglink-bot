@@ -33,11 +33,17 @@ async function updateStreak(userId) {
       // If daysDiff < 1, it's the same day, do nothing to streak count
     }
 
-    // Check milestones
-    if (newStreak === 7 && user.streakDays < 7) {
-      earnedBadge = '🔥 7-Day Streak';
+    // Check milestones (5 Levels)
+    if (newStreak === 3 && user.streakDays < 3) {
+      earnedBadge = '🚀 Starter Streak (Siku 3)';
+    } else if (newStreak === 7 && user.streakDays < 7) {
+      earnedBadge = '🔥 Active Freelancer (Siku 7)';
+    } else if (newStreak === 14 && user.streakDays < 14) {
+      earnedBadge = '🌟 Consistent Performer (Siku 14)';
     } else if (newStreak === 30 && user.streakDays < 30) {
-      earnedBadge = '🌟 30-Day Streak (Active Pro)';
+      earnedBadge = '💎 Pro Worker (Siku 30)';
+    } else if (newStreak === 90 && user.streakDays < 90) {
+      earnedBadge = '👑 Legendary GigLinker (Siku 90)';
     }
 
     // Update user

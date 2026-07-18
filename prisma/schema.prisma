@@ -291,7 +291,7 @@ enum RetainerStatus {
 
 model ReferralReward {
   id              Int       @id @default(autoincrement())
-  amount          Float     @default(5000)
+  amount          Float     @default(0)
   status          RewardStatus @default(PENDING)
   referrerId      Int
   referrer        User      @relation("ReferralRewardGiven", fields: [referrerId], references: [id])
@@ -304,4 +304,10 @@ enum RewardStatus {
   PENDING
   PAID
   CANCELLED
+}
+
+model SystemSettings {
+  id                 String   @id @default("default")
+  referralPercentage Float    @default(5.0)
+  updatedAt          DateTime @updatedAt
 }
