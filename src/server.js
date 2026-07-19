@@ -8,22 +8,14 @@ const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const SECRET_PATH = `/telegraf/${bot.secretPathComponent()}`;
 
-// 1. Weka Webhook kwa Telegram (Endapo WEBHOOK_URL ipo)
-if (WEBHOOK_URL) {
-  bot.telegram.setWebhook(`${WEBHOOK_URL}${SECRET_PATH}`).then(() => {
-    console.log(`Webhook imesetiwa: ${WEBHOOK_URL}${SECRET_PATH}`);
-  });
+// Tumia Polling kila wakati. Ni ya uhakika zaidi na haisumbui na Reverse Proxies.
+bot.launch().then(() => {
+  console.log('Bot inafanya kazi kwa njia ya Polling.');
+}).catch(err => {
+  console.error('Kosa wakati wa kuwasha bot:', err);
+});
 
-  // Pokea requests kutoka Telegram kwenda kwenye bot yetu
-  app.use(bot.webhookCallback(SECRET_PATH));
-} else {
-  // Kama hakuna Webhook, tumia Polling (kwa ajili ya development)
-  bot.launch();
-  console.log('Bot inafanya kazi kwa njia ya Polling (Development Mode).');
-}
 
 // 2. Health check route kwa ajili ya aaPanel na PM2
 app.get('/', (req, res) => {
